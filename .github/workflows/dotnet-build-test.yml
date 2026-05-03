@@ -32,7 +32,13 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ "$TARGET" == "." ]; then
-            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk '{ print length, $0 }' | sort -n | cut -d" " -f2- | head -n 1)
+            # Find .sln, then .slnx, then .csproj, sort by depth (slash count)
+            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n -k2,2 | awk '{print $2}' | head -n 1)
+            # Prioritize SLN if multiple results at same depth
+            SLN=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
+            if [ ! -z "$SLN" ]; then
+              FOUND="$SLN"
+            fi
             if [ ! -z "$FOUND" ]; then
               TARGET="$FOUND"
             fi
@@ -44,7 +50,13 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ "$TARGET" == "." ]; then
-            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk '{ print length, $0 }' | sort -n | cut -d" " -f2- | head -n 1)
+            # Find .sln, then .slnx, then .csproj, sort by depth (slash count)
+            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n -k2,2 | awk '{print $2}' | head -n 1)
+            # Prioritize SLN if multiple results at same depth
+            SLN=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
+            if [ ! -z "$SLN" ]; then
+              FOUND="$SLN"
+            fi
             if [ ! -z "$FOUND" ]; then
               TARGET="$FOUND"
             fi
@@ -55,7 +67,13 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ "$TARGET" == "." ]; then
-            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk '{ print length, $0 }' | sort -n | cut -d" " -f2- | head -n 1)
+            # Find .sln, then .slnx, then .csproj, sort by depth (slash count)
+            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n -k2,2 | awk '{print $2}' | head -n 1)
+            # Prioritize SLN if multiple results at same depth
+            SLN=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
+            if [ ! -z "$SLN" ]; then
+              FOUND="$SLN"
+            fi
             if [ ! -z "$FOUND" ]; then
               TARGET="$FOUND"
             fi
