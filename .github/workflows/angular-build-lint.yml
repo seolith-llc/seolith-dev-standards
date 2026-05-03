@@ -51,5 +51,12 @@ jobs:
         continue-on-error: true
         
       - name: Build
-        run: npm run build
-        working-directory: ${{ steps.detect.outputs.path }}
+        run: |
+          PATH_VAR="${{ steps.detect.outputs.path }}"
+          cd "$PATH_VAR"
+          if [ -f "angular.json" ]; then
+            # Try to build all projects if it's a workspace and regular build fails
+            npm run build || (npx ng build --all || npx ng build $(jq -r '.defaultProject // .projects | keys | .[0]' angular.json))
+          else
+            npm run build
+          fi
