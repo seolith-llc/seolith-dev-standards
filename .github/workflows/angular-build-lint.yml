@@ -43,7 +43,7 @@ jobs:
           echo "Detected Angular path: $TARGET"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci || npm install
         working-directory: ${{ steps.detect.outputs.path }}
         
       - name: Lint
