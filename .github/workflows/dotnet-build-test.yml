@@ -27,10 +27,36 @@ jobs:
           dotnet-version: ${{ inputs.dotnet-version }}
           
       - name: Restore dependencies
-        run: dotnet restore ${{ inputs.project-path }}
+        run: |
+          TARGET="${{ inputs.project-path }}"
+          if [ "$TARGET" == "." ]; then
+            # Try to find a solution or project file recursively
+            FOUND=$(find . -maxdepth 3 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
+            if [ ! -z "$FOUND" ]; then
+              TARGET="$FOUND"
+            fi
+          fi
+          echo "Targeting: $TARGET"
+          dotnet restore "$TARGET"
         
       - name: Build
-        run: dotnet build ${{ inputs.project-path }} --no-restore
+        run: |
+          TARGET="${{ inputs.project-path }}"
+          if [ "$TARGET" == "." ]; then
+            FOUND=$(find . -maxdepth 3 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
+            if [ ! -z "$FOUND" ]; then
+              TARGET="$FOUND"
+            fi
+          fi
+          dotnet build "$TARGET" --no-restore
         
       - name: Test
-        run: dotnet test ${{ inputs.project-path }} --no-build --verbosity normal
+        run: |
+          TARGET="${{ inputs.project-path }}"
+          if [ "$TARGET" == "." ]; then
+            FOUND=$(find . -maxdepth 3 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
+            if [ ! -z "$FOUND" ]; then
+              TARGET="$FOUND"
+            fi
+          fi
+          dotnet test "$TARGET" --no-build --verbosity normal

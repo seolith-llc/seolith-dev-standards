@@ -25,18 +25,29 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-          cache: "npm"
-          cache-dependency-path: "${{ inputs.project-path }}/package-lock.json"
           
+      - name: Detect Project Path
+        id: detect
+        run: |
+          TARGET="${{ inputs.project-path }}"
+          if [ ! -f "$TARGET/package.json" ]; then
+            FOUND=$(find . -maxdepth 3 -name "package.json" -not -path "*/node_modules/*" | head -n 1)
+            if [ ! -z "$FOUND" ]; then
+              TARGET=$(dirname "$FOUND")
+            fi
+          fi
+          echo "path=$TARGET" >> $GITHUB_OUTPUT
+          echo "Detected Angular path: $TARGET"
+
       - name: Install dependencies
         run: npm ci
-        working-directory: ${{ inputs.project-path }}
+        working-directory: ${{ steps.detect.outputs.path }}
         
       - name: Lint
         run: npm run lint
-        working-directory: ${{ inputs.project-path }}
+        working-directory: ${{ steps.detect.outputs.path }}
         continue-on-error: true
         
       - name: Build
         run: npm run build
-        working-directory: ${{ inputs.project-path }}
+        working-directory: ${{ steps.detect.outputs.path }}
