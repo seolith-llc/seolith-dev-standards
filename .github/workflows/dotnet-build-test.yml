@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Run AgentShield Security Scan
-        run: npx ecc-agentshield scan --fail-on-critical
+        run: npx ecc-agentshield scan --gate
         
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
