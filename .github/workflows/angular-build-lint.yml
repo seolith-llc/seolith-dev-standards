@@ -33,7 +33,7 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ ! -f "$TARGET/package.json" ]; then
-            FOUND=$(find . -maxdepth 3 -name "package.json" -not -path "*/node_modules/*" | head -n 1)
+            FOUND=$(find . -maxdepth 6 -name "package.json" -not -path "*/node_modules/*" | head -n 1)
             if [ ! -z "$FOUND" ]; then
               TARGET=$(dirname "$FOUND")
             fi

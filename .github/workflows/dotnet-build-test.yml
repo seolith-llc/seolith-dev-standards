@@ -32,7 +32,7 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ "$TARGET" == "." ]; then
-            FOUND=$(find . -maxdepth 3 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
+            FOUND=$(find . -maxdepth 6 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
             if [ ! -z "$FOUND" ]; then
               TARGET="$FOUND"
             fi
@@ -44,7 +44,7 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ "$TARGET" == "." ]; then
-            FOUND=$(find . -maxdepth 3 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
+            FOUND=$(find . -maxdepth 6 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
             if [ ! -z "$FOUND" ]; then
               TARGET="$FOUND"
             fi
@@ -55,7 +55,7 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ "$TARGET" == "." ]; then
-            FOUND=$(find . -maxdepth 3 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
+            FOUND=$(find . -maxdepth 6 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
             if [ ! -z "$FOUND" ]; then
               TARGET="$FOUND"
             fi

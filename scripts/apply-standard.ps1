@@ -59,13 +59,11 @@ $hasSln = Get-ChildItem -Path $TargetRepoPath -Filter "*.sln" -Recurse | Select-
 $hasCsproj = Get-ChildItem -Path $TargetRepoPath -Filter "*.csproj" -Recurse | Select-Object -First 1
 $isDotNet = ($null -ne $hasSln -or $null -ne $hasCsproj)
 
-$pkgJson = Get-ChildItem -Path $TargetRepoPath -Filter "package.json" -Recurse | Where-Object { (Get-Content $_.FullName) -match "@angular/core" } | Select-Object -First 1
+$pkgJson = Get-ChildItem -Path $TargetRepoPath -Filter "package.json" -Recurse | Where-Object { (Get-Content $_.FullName -Raw) -match "@angular/core" } | Select-Object -First 1
 $isAngular = ($null -ne $pkgJson)
 
-if ($isDotNet) {
-    Write-Host "  [DETECTION] Found .NET Project" -ForegroundColor Cyan
-    $ciFile = Join-Path $targetGithubDir "ci.yml"
-    @"
+if ($isDotNet -or $isAngular) {
+    $ciFileContent = @"
 name: CI
 
 on:
@@ -75,29 +73,22 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build-and-test:
-    uses: seolith-llc/seolith-dev-standards/.github/workflows/dotnet-build-test.yml@main
-"@ | Out-File -FilePath $ciFile -Encoding utf8
-    Write-Host "  [OK] Injected .NET CI Pipeline" -ForegroundColor Green
-}
+"@
 
-if ($isAngular) {
-    Write-Host "  [DETECTION] Found Angular Project" -ForegroundColor Cyan
+    if ($isDotNet) {
+        Write-Host "  [DETECTION] Found .NET Project" -ForegroundColor Cyan
+        $ciFileContent += "`n  dotnet-build-test:`n    uses: seolith-llc/seolith-dev-standards/.github/workflows/dotnet-build-test.yml@main"
+        Write-Host "  [OK] Added .NET job to CI" -ForegroundColor Green
+    }
+
+    if ($isAngular) {
+        Write-Host "  [DETECTION] Found Angular Project" -ForegroundColor Cyan
+        $ciFileContent += "`n  angular-lint-build:`n    uses: seolith-llc/seolith-dev-standards/.github/workflows/angular-build-lint.yml@main"
+        Write-Host "  [OK] Added Angular job to CI" -ForegroundColor Green
+    }
+
     $ciFile = Join-Path $targetGithubDir "ci.yml"
-    @"
-name: CI
-
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-
-jobs:
-  lint-and-build:
-    uses: seolith-llc/seolith-dev-standards/.github/workflows/angular-build-lint.yml@main
-"@ | Out-File -FilePath $ciFile -Encoding utf8
-    Write-Host "  [OK] Injected Angular CI Pipeline" -ForegroundColor Green
+    $ciFileContent | Out-File -FilePath $ciFile -Encoding utf8
 }
 
 Write-Host "`nStandards applied successfully." -ForegroundColor Cyan
