@@ -54,19 +54,13 @@ if (-not (Test-Path $targetGithubDir)) {
     New-Item -ItemType Directory -Path $targetGithubDir -Force
 }
 
-# Detect Tech Stack (Fixed Logic)
-$hasSln = Test-Path (Join-Path $TargetRepoPath "*.sln")
+# Detect Tech Stack (Fixed Logic - Recursive)
+$hasSln = Get-ChildItem -Path $TargetRepoPath -Filter "*.sln" -Recurse | Select-Object -First 1
 $hasCsproj = Get-ChildItem -Path $TargetRepoPath -Filter "*.csproj" -Recurse | Select-Object -First 1
-$isDotNet = ($hasSln -or $hasCsproj)
+$isDotNet = ($null -ne $hasSln -or $null -ne $hasCsproj)
 
-$pkgJsonPath = Join-Path $TargetRepoPath "package.json"
-$isAngular = $false
-if (Test-Path $pkgJsonPath) {
-    $content = Get-Content $pkgJsonPath
-    if ($content -match "@angular/core") {
-        $isAngular = $true
-    }
-}
+$pkgJson = Get-ChildItem -Path $TargetRepoPath -Filter "package.json" -Recurse | Where-Object { (Get-Content $_.FullName) -match "@angular/core" } | Select-Object -First 1
+$isAngular = ($null -ne $pkgJson)
 
 if ($isDotNet) {
     Write-Host "  [DETECTION] Found .NET Project" -ForegroundColor Cyan
