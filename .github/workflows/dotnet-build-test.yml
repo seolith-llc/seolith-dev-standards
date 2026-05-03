@@ -15,6 +15,8 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
       
@@ -30,7 +32,6 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ "$TARGET" == "." ]; then
-            # Try to find a solution or project file recursively
             FOUND=$(find . -maxdepth 3 -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" | head -n 1)
             if [ ! -z "$FOUND" ]; then
               TARGET="$FOUND"
