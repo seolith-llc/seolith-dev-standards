@@ -33,10 +33,24 @@ jobs:
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ ! -f "$TARGET/package.json" ]; then
-            # Find all package.json files, sort by depth (slash count), and pick the shallowest one
-            FOUND=$(find . -maxdepth 6 -name "package.json" -not -path "*/node_modules/*" | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
+            # Find all package.json files, sort by depth (slash count)
+            # Prioritize directories containing 'angular.json' or having 'angular' in the path
+            FOUND=$(find . -maxdepth 6 -name "package.json" -not -path "*/node_modules/*" | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | while read p; do
+              DIR=$(dirname "$p")
+              if [ -f "$DIR/angular.json" ] || grep -q "@angular/core" "$p"; then
+                echo "$p"
+                break
+              fi
+            done | head -n 1)
+            
             if [ ! -z "$FOUND" ]; then
               TARGET=$(dirname "$FOUND")
+            else
+              # Fallback to shallowest package.json if no angular specific ones found
+              FOUND=$(find . -maxdepth 6 -name "package.json" -not -path "*/node_modules/*" | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
+              if [ ! -z "$FOUND" ]; then
+                TARGET=$(dirname "$FOUND")
+              fi
             fi
           fi
           echo "path=$TARGET" >> $GITHUB_OUTPUT
