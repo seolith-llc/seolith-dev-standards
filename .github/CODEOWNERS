@@ -1,0 +1,8 @@
+# SEOlith shared CI/CD standards ownership
+
+* @seolithdev01
+
+/.github/workflows/ @seolithdev01
+/devcontainers/ @seolithdev01
+/scripts/ @seolithdev01
+/SECURITY.md @seolithdev01
