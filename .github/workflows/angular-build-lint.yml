@@ -37,6 +37,7 @@ jobs:
           
       - name: Detect Project Path
         id: detect
+        shell: bash
         run: |
           TARGET="${{ inputs.project-path }}"
           if [ ! -f "$TARGET/package.json" ]; then
@@ -73,6 +74,7 @@ jobs:
         continue-on-error: true
         
       - name: Build
+        shell: bash
         run: |
           PATH_VAR="${{ steps.detect.outputs.path }}"
           cd "$PATH_VAR"
