@@ -38,56 +38,50 @@ jobs:
           dotnet-version: ${{ inputs.dotnet-version }}
           
       - name: Restore dependencies
-        shell: bash
+        shell: pwsh
         run: |
-          TARGET="${{ inputs.project-path }}"
-          if [ "$TARGET" == "." ]; then
-            # Find .sln, then .slnx, then .csproj, sort by depth (slash count)
-            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n -k2,2 | awk '{print $2}' | head -n 1)
-            # Prioritize SLN if multiple results at same depth
-            SLN=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
-            if [ ! -z "$SLN" ]; then
-              FOUND="$SLN"
-            fi
-            if [ ! -z "$FOUND" ]; then
-              TARGET="$FOUND"
-            fi
-          fi
+          $TARGET = "${{ inputs.project-path }}"
+          if ($TARGET -eq ".") {
+            $FOUND = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx,*.csproj |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
+              Select-Object -First 1
+            $SLN = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
+              Select-Object -First 1
+            if ($SLN) { $FOUND = $SLN }
+            if ($FOUND) { $TARGET = $FOUND.FullName }
+          }
           echo "Targeting: $TARGET"
           dotnet restore "$TARGET"
         
       - name: Build
-        shell: bash
+        shell: pwsh
         run: |
-          TARGET="${{ inputs.project-path }}"
-          if [ "$TARGET" == "." ]; then
-            # Find .sln, then .slnx, then .csproj, sort by depth (slash count)
-            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n -k2,2 | awk '{print $2}' | head -n 1)
-            # Prioritize SLN if multiple results at same depth
-            SLN=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
-            if [ ! -z "$SLN" ]; then
-              FOUND="$SLN"
-            fi
-            if [ ! -z "$FOUND" ]; then
-              TARGET="$FOUND"
-            fi
-          fi
+          $TARGET = "${{ inputs.project-path }}"
+          if ($TARGET -eq ".") {
+            $FOUND = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx,*.csproj |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
+              Select-Object -First 1
+            $SLN = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
+              Select-Object -First 1
+            if ($SLN) { $FOUND = $SLN }
+            if ($FOUND) { $TARGET = $FOUND.FullName }
+          }
           dotnet build "$TARGET" --no-restore
         
       - name: Test
-        shell: bash
+        shell: pwsh
         run: |
-          TARGET="${{ inputs.project-path }}"
-          if [ "$TARGET" == "." ]; then
-            # Find .sln, then .slnx, then .csproj, sort by depth (slash count)
-            FOUND=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" -o -name "*.csproj" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n -k2,2 | awk '{print $2}' | head -n 1)
-            # Prioritize SLN if multiple results at same depth
-            SLN=$(find . -maxdepth 6 \( -name "*.sln" -o -name "*.slnx" \) | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
-            if [ ! -z "$SLN" ]; then
-              FOUND="$SLN"
-            fi
-            if [ ! -z "$FOUND" ]; then
-              TARGET="$FOUND"
-            fi
-          fi
+          $TARGET = "${{ inputs.project-path }}"
+          if ($TARGET -eq ".") {
+            $FOUND = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx,*.csproj |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
+              Select-Object -First 1
+            $SLN = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
+              Select-Object -First 1
+            if ($SLN) { $FOUND = $SLN }
+            if ($FOUND) { $TARGET = $FOUND.FullName }
+          }
           dotnet test "$TARGET" --no-build --verbosity normal
