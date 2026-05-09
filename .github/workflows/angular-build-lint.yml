@@ -37,31 +37,21 @@ jobs:
           
       - name: Detect Project Path
         id: detect
-        shell: bash
+        shell: pwsh
         run: |
-          TARGET="${{ inputs.project-path }}"
-          if [ ! -f "$TARGET/package.json" ]; then
-            # Find all package.json files, sort by depth (slash count)
-            # Prioritize directories containing 'angular.json' or having 'angular' in the path
-            FOUND=$(find . -maxdepth 6 -name "package.json" -not -path "*/node_modules/*" | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | while read p; do
-              DIR=$(dirname "$p")
-              if [ -f "$DIR/angular.json" ] || grep -q "@angular/core" "$p"; then
-                echo "$p"
-                break
-              fi
-            done | head -n 1)
-            
-            if [ ! -z "$FOUND" ]; then
-              TARGET=$(dirname "$FOUND")
-            else
-              # Fallback to shallowest package.json if no angular specific ones found
-              FOUND=$(find . -maxdepth 6 -name "package.json" -not -path "*/node_modules/*" | awk -F/ '{ print NF, $0 }' | sort -k1,1n | awk '{print $2}' | head -n 1)
-              if [ ! -z "$FOUND" ]; then
-                TARGET=$(dirname "$FOUND")
-              fi
-            fi
-          fi
-          echo "path=$TARGET" >> $GITHUB_OUTPUT
+          $TARGET = "${{ inputs.project-path }}"
+          if (-not (Test-Path (Join-Path $TARGET "package.json"))) {
+            $packages = Get-ChildItem -Recurse -Depth 6 -Filter package.json |
+              Where-Object { $_.FullName -notmatch "[\\/]node_modules[\\/]" } |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName
+            $FOUND = $packages | Where-Object {
+              (Test-Path (Join-Path $_.Directory.FullName "angular.json")) -or
+              ((Get-Content -Raw $_.FullName) -match "@angular/core")
+            } | Select-Object -First 1
+            if (-not $FOUND) { $FOUND = $packages | Select-Object -First 1 }
+            if ($FOUND) { $TARGET = $FOUND.Directory.FullName }
+          }
+          "path=$TARGET" >> $env:GITHUB_OUTPUT
           echo "Detected Angular path: $TARGET"
 
       - name: Install dependencies
@@ -74,13 +64,19 @@ jobs:
         continue-on-error: true
         
       - name: Build
-        shell: bash
+        shell: pwsh
         run: |
-          PATH_VAR="${{ steps.detect.outputs.path }}"
-          cd "$PATH_VAR"
-          if [ -f "angular.json" ]; then
-            # Try to build all projects if it's a workspace and regular build fails
-            npm run build || (npx ng build --all || npx ng build $(jq -r '.defaultProject // .projects | keys | .[0]' angular.json))
-          else
+          Set-Location "${{ steps.detect.outputs.path }}"
+          if (Test-Path "angular.json") {
             npm run build
-          fi
+            if ($LASTEXITCODE -ne 0) {
+              $workspace = Get-Content -Raw angular.json | ConvertFrom-Json
+              foreach ($project in $workspace.projects.PSObject.Properties.Name) {
+                npx ng build $project
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              }
+            }
+          } else {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
