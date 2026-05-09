@@ -1,0 +1,20 @@
+name: Self-Hosted Runner Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, linux, x64, seolith-build]
+    steps:
+      - name: Check runner tools
+        run: |
+          set -euo pipefail
+          uname -a
+          git --version
+          docker --version
+          node --version
+          dotnet --info
