@@ -24,7 +24,6 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
     steps:
       - uses: actions/checkout@v5
       
@@ -33,6 +32,8 @@ jobs:
         
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
           
