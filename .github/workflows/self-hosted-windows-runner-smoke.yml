@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   smoke:
-    runs-on: [self-hosted, windows, x64, seolith-build]
+    runs-on: [self-hosted, windows, x64]
     steps:
       - name: Check runner tools
         shell: pwsh

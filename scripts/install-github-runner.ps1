@@ -8,7 +8,7 @@ param(
     [string]$RunnerVersion = "2.329.0",
     [string]$RunnerRoot = "C:\actions-runner",
     [string]$RunnerGroup = "Default",
-    [string]$Labels = "seolith-build,docker,dotnet10,node24"
+    [string]$Labels = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,18 +34,42 @@ if (-not (Test-Path $archive)) {
 
 Expand-Archive -Path $archive -DestinationPath $RunnerRoot -Force
 
-& .\config.cmd `
-    --url "https://github.com/$Organization" `
-    --token $token `
-    --name $RunnerName `
-    --runnergroup $RunnerGroup `
-    --labels $Labels `
-    --work "_work" `
-    --replace `
-    --unattended
+$configArgs = @(
+    "--url", "https://github.com/$Organization",
+    "--token", $token,
+    "--name", $RunnerName,
+    "--runnergroup", $RunnerGroup,
+    "--work", "_work",
+    "--replace",
+    "--unattended"
+)
 
-& .\svc install
-& .\svc start
+if (-not [string]::IsNullOrWhiteSpace($Labels)) {
+    $configArgs += @("--labels", $Labels)
+}
+
+& .\config.cmd @configArgs
+if ($LASTEXITCODE -ne 0) {
+    throw "Runner registration failed. Generate a fresh token and run the script again."
+}
+
+if (-not (Test-Path ".\svc.cmd")) {
+    throw "Runner service helper svc.cmd was not found in $RunnerRoot."
+}
+
+& .\svc.cmd install
+if ($LASTEXITCODE -ne 0) {
+    throw "Runner service install failed."
+}
+
+& .\svc.cmd start
+if ($LASTEXITCODE -ne 0) {
+    throw "Runner service start failed."
+}
 
 Write-Host "Runner installed and started: $RunnerName"
-Write-Host "Labels: self-hosted, windows, x64, $Labels"
+if ([string]::IsNullOrWhiteSpace($Labels)) {
+    Write-Host "Labels: self-hosted, windows, x64"
+} else {
+    Write-Host "Labels: self-hosted, windows, x64, $Labels"
+}

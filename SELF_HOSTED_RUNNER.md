@@ -6,7 +6,7 @@ Use an organization-level runner for heavy SEOlith builds so private repo CI doe
 
 - Scope: `seolith-llc` organization runner.
 - Runner group: `seolith-core-build` preferred; `Default` is acceptable while bootstrapping.
-- Labels: `self-hosted`, `windows`, `x64`, `seolith-build`, `docker`, `dotnet10`, `node24`.
+- Labels: `self-hosted`, `windows`, `x64`. Add `seolith-build`, `docker`, `dotnet10`, and `node24` later if you want tighter routing.
 - OS: Windows 11 Pro, Windows Server 2022, or Windows Server 2025.
 - Size: 4-8 vCPU, 16-32 GB RAM, 150+ GB disk.
 
@@ -50,7 +50,7 @@ jobs:
   dotnet-build-test:
     uses: seolith-llc/seolith-dev-standards/.github/workflows/dotnet-build-test.yml@main
     with:
-      runs-on: '["self-hosted","windows","x64","seolith-build"]'
+      runs-on: '["self-hosted","windows","x64"]'
 ```
 
 If the runner is offline, jobs using that label will queue. Temporarily remove the `runs-on` input to fall back to GitHub-hosted runners.
