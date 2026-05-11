@@ -46,8 +46,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: ${{ inputs.node-version }}
-          cache: npm
-          cache-dependency-path: ${{ inputs.project-path }}/package-lock.json
 
       - name: Detect project path
         id: detect
@@ -66,7 +64,15 @@ jobs:
           echo "Detected Node path: $target"
 
       - name: Install dependencies
-        run: ${{ inputs.install-command }}
+        shell: pwsh
+        run: |
+          $install = "${{ inputs.install-command }}"
+          if ($install -eq "npm ci" -and -not (Test-Path "package-lock.json")) {
+            echo "No package-lock.json found; falling back to npm install."
+            npm install
+            exit $LASTEXITCODE
+          }
+          Invoke-Expression $install
         working-directory: ${{ steps.detect.outputs.path }}
 
       - name: Audit dependencies
