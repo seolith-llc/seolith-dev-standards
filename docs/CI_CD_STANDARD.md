@@ -14,6 +14,7 @@ Prefer reusable workflows from this repo:
 
 - `.github/workflows/dotnet-build-test.yml`
 - `.github/workflows/angular-build-lint.yml`
+- `.github/workflows/node-build.yml`
 - `.github/workflows/node-pwa-build.yml`
 
 Production-facing app repos should also satisfy the [common services standard](COMMON_SERVICES_STANDARD.md) before promotion to production.
@@ -28,6 +29,18 @@ Production-facing app repos should also satisfy the [common services standard](C
 - Build artifact validation, not only install/lint.
 
 ## Recommended App Workflows
+
+### Node PWA
+
+### Node App
+
+```yaml
+jobs:
+  node:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/node-build.yml@main
+    with:
+      project-path: .
+```
 
 ### Node PWA
 
