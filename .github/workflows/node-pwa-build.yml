@@ -1,0 +1,87 @@
+name: Reusable Node PWA Build
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: "24"
+      project-path:
+        required: false
+        type: string
+        default: "."
+      build-command:
+        required: false
+        type: string
+        default: "npm run build"
+      output-path:
+        required: false
+        type: string
+        default: "dist"
+      runs-on:
+        required: false
+        type: string
+        default: '["self-hosted","windows","x64"]'
+      audit-level:
+        required: false
+        type: string
+        default: "high"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-validate:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run AgentShield Security Scan
+        run: npx ecc-agentshield scan --gate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.project-path }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ inputs.project-path }}
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=${{ inputs.audit-level }}
+        working-directory: ${{ inputs.project-path }}
+
+      - name: Build
+        run: ${{ inputs.build-command }}
+        working-directory: ${{ inputs.project-path }}
+
+      - name: Validate PWA assets
+        shell: pwsh
+        run: |
+          $output = Join-Path "${{ inputs.project-path }}" "${{ inputs.output-path }}"
+          $manifestPath = Join-Path $output "manifest.webmanifest"
+          if (-not (Test-Path $manifestPath)) {
+            $manifestPath = Join-Path $output "manifest.json"
+          }
+          if (-not (Test-Path $manifestPath)) { throw "No manifest.webmanifest or manifest.json found in $output." }
+
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          if ($manifest.display -ne "standalone") { throw "Manifest display must be standalone." }
+          foreach ($size in @("192x192", "512x512")) {
+            $any = $manifest.icons | Where-Object { $_.sizes -eq $size -and $_.purpose -like "*any*" }
+            $maskable = $manifest.icons | Where-Object { $_.sizes -eq $size -and $_.purpose -like "*maskable*" }
+            if (-not $any -or -not $maskable) { throw "Missing $size any/maskable icons." }
+          }
+          if (-not (Test-Path (Join-Path $output "sw.js"))) { throw "Service worker was not exported." }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-pwa-build
+          path: ${{ inputs.project-path }}/${{ inputs.output-path }}
