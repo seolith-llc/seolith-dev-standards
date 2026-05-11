@@ -16,6 +16,8 @@ Prefer reusable workflows from this repo:
 - `.github/workflows/angular-build-lint.yml`
 - `.github/workflows/node-pwa-build.yml`
 
+Production-facing app repos should also satisfy the [common services standard](COMMON_SERVICES_STANDARD.md) before promotion to production.
+
 ## Required Gates
 
 - Checkout on `actions/checkout@v5`.
