@@ -6,7 +6,7 @@ on:
       node-version:
         required: false
         type: string
-        default: "22"
+        default: "24"
       project-path:
         required: false
         type: string
