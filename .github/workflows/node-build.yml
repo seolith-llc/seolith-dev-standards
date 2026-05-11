@@ -1,0 +1,88 @@
+name: Reusable Node Build
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: "24"
+      project-path:
+        required: false
+        type: string
+        default: "."
+      install-command:
+        required: false
+        type: string
+        default: "npm ci"
+      build-command:
+        required: false
+        type: string
+        default: "npm run build"
+      audit-level:
+        required: false
+        type: string
+        default: "high"
+      runs-on:
+        required: false
+        type: string
+        default: '["self-hosted","windows","x64"]'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run AgentShield Security Scan
+        run: npx ecc-agentshield scan --gate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.project-path }}/package-lock.json
+
+      - name: Detect project path
+        id: detect
+        shell: pwsh
+        run: |
+          $target = "${{ inputs.project-path }}"
+          if (-not (Test-Path (Join-Path $target "package.json"))) {
+            $found = Get-ChildItem -Recurse -Depth 6 -Filter package.json |
+              Where-Object { $_.FullName -notmatch "[\\/]node_modules[\\/]" } |
+              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
+              Select-Object -First 1
+            if ($found) { $target = $found.Directory.FullName }
+          }
+          if (-not (Test-Path (Join-Path $target "package.json"))) { throw "No package.json found for Node build." }
+          "path=$target" >> $env:GITHUB_OUTPUT
+          echo "Detected Node path: $target"
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+        working-directory: ${{ steps.detect.outputs.path }}
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=${{ inputs.audit-level }}
+        working-directory: ${{ steps.detect.outputs.path }}
+        continue-on-error: true
+
+      - name: Build
+        shell: pwsh
+        run: |
+          Set-Location "${{ steps.detect.outputs.path }}"
+          $build = "${{ inputs.build-command }}"
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($build -eq "npm run build" -and -not $package.scripts.build) {
+            echo "No build script found; running npm test when available."
+            if ($package.scripts.test) { npm test }
+            exit 0
+          }
+          Invoke-Expression $build

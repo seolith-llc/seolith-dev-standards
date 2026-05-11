@@ -26,5 +26,6 @@ When an application inherits these workflows, it automatically gets:
 - Secrets detection (API keys, tokens)
 - Misconfiguration auditing
 - Dependency vulnerability scanning
+- Node/Angular/.NET/PWA build validation through reusable workflows
 
 If a critical vulnerability is found, the CI build will fail automatically (`--fail-on-critical`), preventing insecure code from being merged or deployed.
