@@ -10,6 +10,8 @@ Use an organization-level runner for heavy SEOlith builds so private repo CI doe
 - OS: Windows 11 Pro, Windows Server 2022, or Windows Server 2025.
 - Size: 4-8 vCPU, 16-32 GB RAM, 150+ GB disk.
 
+For production/runtime VM sizing and operating baselines, use [VM baseline](docs/VM_BASELINE.md).
+
 ## Security Rules
 
 - Do not allow untrusted fork pull requests to run on this runner.
