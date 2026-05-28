@@ -22,7 +22,7 @@ on:
       runs-on:
         required: false
         type: string
-        default: '["self-hosted","windows","x64"]'
+        default: '["self-hosted","Windows","X64"]'
       audit-level:
         required: false
         type: string
@@ -34,6 +34,7 @@ permissions:
 jobs:
   build-and-validate:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 25
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -49,13 +50,17 @@ jobs:
 
       - name: Install dependencies
         shell: pwsh
+        timeout-minutes: 10
         run: |
           if (Test-Path "package-lock.json") {
             npm ci
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            echo "npm ci failed; retrying npm install --legacy-peer-deps."
           } else {
-            echo "No package-lock.json found; falling back to npm install."
-            npm install
+            echo "No package-lock.json found; using npm install --legacy-peer-deps."
           }
+          npm install --legacy-peer-deps
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         working-directory: ${{ inputs.project-path }}
 
       - name: Audit dependencies
