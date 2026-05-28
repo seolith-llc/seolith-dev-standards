@@ -22,6 +22,7 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 20
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -71,6 +72,7 @@ jobs:
           dotnet build "$TARGET" --no-restore
         
       - name: Test
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $TARGET = "${{ inputs.project-path }}"
