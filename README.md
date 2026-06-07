@@ -1,4 +1,8 @@
 # SEOlith Development Standards
+
+## Core Standards
+
+- [Fleet theming standard](docs/THEMING_STANDARD.md): every app supports dark, light, and geo-city themes using shared semantic tokens.
 Centralized hub for ecosystem standards: DevContainers, CI/CD templates, Linting/Formatting, and Design System.
 
 ## Operating Docs
