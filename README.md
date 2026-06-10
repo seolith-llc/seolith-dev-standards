@@ -24,6 +24,16 @@ From this repo:
 .\scripts\audit-common-services.ps1 -Root C:\src\seolith
 ```
 
+## Local Pre-Commit Hooks
+
+Install the standard local `gitleaks` pre-commit hook into every Git repo under the fleet root:
+
+```powershell
+.\scripts\install-precommit-hooks.ps1 -Root C:\src\seolith
+```
+
+Use `-Force` when existing hooks should be replaced with the current standard hook.
+
 ## 🛡️ Built-in Security (AgentShield)
 All reusable CI/CD workflows (`.github/workflows/*.yml`) in this repository are pre-configured with **AgentShield**. 
 When an application inherits these workflows, it automatically gets:
