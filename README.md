@@ -22,7 +22,10 @@ From this repo:
 ```powershell
 .\scripts\audit-local-repos.ps1 -Root C:\src\seolith
 .\scripts\audit-common-services.ps1 -Root C:\src\seolith
+.\scripts\test-fleet-urls.ps1 -AllowProtected
 ```
+
+`test-fleet-urls.ps1` reads the Apps Showcase catalog seed by default, checks every public URL, and classifies responses as app, protected, placeholder, or broken. Omit `-AllowProtected` when protected/auth-gated catalog entries should fail the check.
 
 ## Local Pre-Commit Hooks
 
