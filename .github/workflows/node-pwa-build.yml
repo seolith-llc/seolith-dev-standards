@@ -6,7 +6,7 @@ on:
       node-version:
         required: false
         type: string
-        default: "24"
+        default: "24.16.0"
       project-path:
         required: false
         type: string
@@ -62,7 +62,7 @@ jobs:
         working-directory: ${{ inputs.project-path }}
 
       - name: Audit dependencies
-        run: npm audit --audit-level=${{ inputs.audit-level }}
+        run: npm audit --omit=dev --audit-level=${{ inputs.audit-level }}
         working-directory: ${{ inputs.project-path }}
 
       - name: Build
