@@ -22,6 +22,13 @@ permissions:
 jobs:
   lint-and-build:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      NG_CLI_ANALYTICS: "false"
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND: "false"
+      NPM_CONFIG_PROGRESS: "false"
     steps:
       - uses: actions/checkout@v5
       
@@ -72,6 +79,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
       - name: Install dependencies
+        timeout-minutes: 10
         shell: pwsh
         run: |
           if (Test-Path "package-lock.json") {
@@ -86,11 +94,13 @@ jobs:
         working-directory: ${{ steps.detect.outputs.path }}
         
       - name: Lint
+        timeout-minutes: 5
         run: npm run lint
         working-directory: ${{ steps.detect.outputs.path }}
         continue-on-error: true
         
       - name: Build
+        timeout-minutes: 10
         shell: pwsh
         run: |
           Set-Location "${{ steps.detect.outputs.path }}"
