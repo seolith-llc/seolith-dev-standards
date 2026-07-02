@@ -35,6 +35,8 @@ jobs:
   build-and-validate:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     timeout-minutes: 25
+    env:
+      NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-cache
     steps:
       - uses: actions/checkout@v5
 
