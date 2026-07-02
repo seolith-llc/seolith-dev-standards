@@ -26,7 +26,7 @@ on:
       runs-on:
         required: false
         type: string
-        default: '["self-hosted","windows","x64"]'
+        default: '["self-hosted","windows","x64","seolith-local"]'
 
 permissions:
   contents: read
