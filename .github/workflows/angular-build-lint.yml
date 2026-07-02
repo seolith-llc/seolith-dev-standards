@@ -27,12 +27,12 @@ jobs:
       CI: "true"
       NG_CLI_ANALYTICS: "false"
       NPM_CONFIG_AUDIT: "false"
-      NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-cache
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
       NPM_CONFIG_FUND: "false"
       NPM_CONFIG_PROGRESS: "false"
     steps:
       - uses: actions/checkout@v5
-      
+
       - name: Run AgentShield Security Scan
         run: npx ecc-agentshield scan --path "$env:GITHUB_WORKSPACE" --gate
 
@@ -93,13 +93,13 @@ jobs:
           npm install --legacy-peer-deps
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         working-directory: ${{ steps.detect.outputs.path }}
-        
+
       - name: Lint
         timeout-minutes: 5
         run: npm run lint
         working-directory: ${{ steps.detect.outputs.path }}
         continue-on-error: true
-        
+
       - name: Build
         timeout-minutes: 10
         shell: pwsh
