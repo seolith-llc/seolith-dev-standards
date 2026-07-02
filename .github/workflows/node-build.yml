@@ -58,26 +58,7 @@ jobs:
           "path=$target" >> $env:GITHUB_OUTPUT
           echo "Detected Node path: $target"
 
-      - name: Detect npm lockfile
-        id: lockfile
-        shell: pwsh
-        run: |
-          $lockfile = Join-Path "${{ steps.detect.outputs.path }}" "package-lock.json"
-          if (Test-Path $lockfile) {
-            "path=$lockfile" >> $env:GITHUB_OUTPUT
-            echo "Using npm cache dependency path: $lockfile"
-          }
-
-      - name: Setup Node.js with npm cache
-        if: steps.lockfile.outputs.path != ''
-        uses: actions/setup-node@v5
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: npm
-          cache-dependency-path: ${{ steps.lockfile.outputs.path }}
-
       - name: Setup Node.js
-        if: steps.lockfile.outputs.path == ''
         uses: actions/setup-node@v5
         with:
           node-version: ${{ inputs.node-version }}
