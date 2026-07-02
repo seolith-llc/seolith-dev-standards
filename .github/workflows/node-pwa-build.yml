@@ -36,7 +36,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     timeout-minutes: 25
     env:
-      NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-cache
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
     steps:
       - uses: actions/checkout@v5
 
