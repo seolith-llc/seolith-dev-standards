@@ -33,46 +33,45 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Run AgentShield Security Scan
-        run: npx ecc-agentshield scan --path "${{ github.workspace }}" --gate
-
-      - name: Detect Project Path
-        id: detect
-        shell: pwsh
-        run: |
-          $TARGET = "${{ inputs.project-path }}"
-          if (-not (Test-Path (Join-Path $TARGET "package.json"))) {
-            $packages = Get-ChildItem -Recurse -Depth 6 -Filter package.json |
-              Where-Object { $_.FullName -notmatch "[\\/]node_modules[\\/]" } |
-              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName
-            $FOUND = $packages | Where-Object {
-              (Test-Path (Join-Path $_.Directory.FullName "angular.json")) -or
-              ((Get-Content -Raw $_.FullName) -match "@angular/core")
-            } | Select-Object -First 1
-            if (-not $FOUND) { $FOUND = $packages | Select-Object -First 1 }
-            if ($FOUND) { $TARGET = $FOUND.Directory.FullName }
-          }
-          "path=$TARGET" >> $env:GITHUB_OUTPUT
-          echo "Detected Angular path: $TARGET"
-
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: ${{ inputs.node-version }}
 
+      - name: Run AgentShield Security Scan
+        run: npx ecc-agentshield scan --path "${{ github.workspace }}" --gate
+
+      - name: Detect Project Path
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ inputs.project-path }}"
+          if [[ ! -f "$target/package.json" ]]; then
+            target=""
+            while IFS= read -r package; do
+              directory="$(dirname "$package")"
+              if [[ -f "$directory/angular.json" ]] || grep -q '"@angular/core"' "$package"; then
+                target="$directory"
+                break
+              fi
+            done < <(find . -maxdepth 6 -type f -name package.json -not -path '*/node_modules/*' -print | sort)
+          fi
+          [[ -n "$target" && -f "$target/package.json" ]] || { echo "No Angular package found." >&2; exit 1; }
+          echo "path=$target" >> "$GITHUB_OUTPUT"
+          echo "Detected Angular path: $target"
+
       - name: Install dependencies
         timeout-minutes: 10
-        shell: pwsh
+        shell: bash
         run: |
-          if (Test-Path "package-lock.json") {
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
             npm ci
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            echo "npm ci failed; retrying npm install --legacy-peer-deps."
-          } else {
+          else
             echo "No package-lock.json found; using npm install --legacy-peer-deps."
-          }
-          npm install --legacy-peer-deps
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            npm install --legacy-peer-deps
+          fi
         working-directory: ${{ steps.detect.outputs.path }}
 
       - name: Lint
@@ -83,19 +82,5 @@ jobs:
 
       - name: Build
         timeout-minutes: 10
-        shell: pwsh
-        run: |
-          Set-Location "${{ steps.detect.outputs.path }}"
-          if (Test-Path "angular.json") {
-            npm run build
-            if ($LASTEXITCODE -ne 0) {
-              $workspace = Get-Content -Raw angular.json | ConvertFrom-Json
-              foreach ($project in $workspace.projects.PSObject.Properties.Name) {
-                npx ng build $project
-                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-              }
-            }
-          } else {
-            npm run build
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+        run: npm run build
+        working-directory: ${{ steps.detect.outputs.path }}
