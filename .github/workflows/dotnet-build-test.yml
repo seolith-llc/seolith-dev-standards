@@ -25,6 +25,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+
+      - name: Setup Node.js for AgentShield
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
       
       - name: Run AgentShield Security Scan
         run: npx ecc-agentshield scan --path "${{ github.workspace }}" --gate
@@ -36,52 +41,28 @@ jobs:
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
           
+      - name: Detect project
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ inputs.project-path }}"
+          if [[ "$target" == "." ]]; then
+            target="$(find . -maxdepth 6 -type f \( -name '*.sln' -o -name '*.slnx' \) -print | sort | head -n 1)"
+            if [[ -z "$target" ]]; then
+              target="$(find . -maxdepth 6 -type f -name '*.csproj' -print | sort | head -n 1)"
+            fi
+          fi
+          [[ -n "$target" && -f "$target" ]] || { echo "No .NET project or solution found." >&2; exit 1; }
+          echo "path=$target" >> "$GITHUB_OUTPUT"
+          echo "Targeting: $target"
+
       - name: Restore dependencies
-        shell: pwsh
-        run: |
-          $TARGET = "${{ inputs.project-path }}"
-          if ($TARGET -eq ".") {
-            $FOUND = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx,*.csproj |
-              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
-              Select-Object -First 1
-            $SLN = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx |
-              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
-              Select-Object -First 1
-            if ($SLN) { $FOUND = $SLN }
-            if ($FOUND) { $TARGET = $FOUND.FullName }
-          }
-          echo "Targeting: $TARGET"
-          dotnet restore "$TARGET"
-        
+        run: dotnet restore "${{ steps.detect.outputs.path }}"
+
       - name: Build
-        shell: pwsh
-        run: |
-          $TARGET = "${{ inputs.project-path }}"
-          if ($TARGET -eq ".") {
-            $FOUND = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx,*.csproj |
-              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
-              Select-Object -First 1
-            $SLN = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx |
-              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
-              Select-Object -First 1
-            if ($SLN) { $FOUND = $SLN }
-            if ($FOUND) { $TARGET = $FOUND.FullName }
-          }
-          dotnet build "$TARGET" --no-restore
-        
+        run: dotnet build "${{ steps.detect.outputs.path }}" --no-restore
+
       - name: Test
         timeout-minutes: 10
-        shell: pwsh
-        run: |
-          $TARGET = "${{ inputs.project-path }}"
-          if ($TARGET -eq ".") {
-            $FOUND = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx,*.csproj |
-              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
-              Select-Object -First 1
-            $SLN = Get-ChildItem -Recurse -Depth 6 -Include *.sln,*.slnx |
-              Sort-Object @{ Expression = { $_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count } }, FullName |
-              Select-Object -First 1
-            if ($SLN) { $FOUND = $SLN }
-            if ($FOUND) { $TARGET = $FOUND.FullName }
-          }
-          dotnet test "$TARGET" --no-build --verbosity normal
+        run: dotnet test "${{ steps.detect.outputs.path }}" --no-build --verbosity normal
