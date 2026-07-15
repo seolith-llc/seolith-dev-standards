@@ -43,19 +43,31 @@ jobs:
           
       - name: Detect project
         id: detect
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          target="${{ inputs.project-path }}"
-          if [[ "$target" == "." ]]; then
-            target="$(find . -maxdepth 6 -type f \( -name '*.sln' -o -name '*.slnx' \) -print | sort | head -n 1)"
-            if [[ -z "$target" ]]; then
-              target="$(find . -maxdepth 6 -type f -name '*.csproj' -print | sort | head -n 1)"
-            fi
-          fi
-          [[ -n "$target" && -f "$target" ]] || { echo "No .NET project or solution found." >&2; exit 1; }
-          echo "path=$target" >> "$GITHUB_OUTPUT"
-          echo "Targeting: $target"
+          $ErrorActionPreference = "Stop"
+          $target = "${{ inputs.project-path }}"
+
+          if ($target -eq ".") {
+            $target = Get-ChildItem -Path . -Recurse -Depth 6 -File |
+              Where-Object { $_.Extension -in @(".sln", ".slnx") } |
+              Sort-Object FullName |
+              Select-Object -First 1 -ExpandProperty FullName
+
+            if ([string]::IsNullOrWhiteSpace($target)) {
+              $target = Get-ChildItem -Path . -Recurse -Depth 6 -File -Filter "*.csproj" |
+                Sort-Object FullName |
+                Select-Object -First 1 -ExpandProperty FullName
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($target) -or -not (Test-Path -LiteralPath $target -PathType Leaf)) {
+            throw "No .NET project or solution found."
+          }
+
+          $target = (Resolve-Path -LiteralPath $target -Relative) -replace "^\.\\", ""
+          "path=$target" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Targeting: $target"
 
       - name: Restore dependencies
         run: dotnet restore "${{ steps.detect.outputs.path }}"
