@@ -1,0 +1,212 @@
+name: Reusable Staging Deploy
+
+# Deploys one application to the staging host.
+#
+# Two decisions here differ from the existing deploy workflows, and both exist
+# to make staging DISCARDABLE -- destroyable on a Friday, rebuilt on a Monday,
+# with no human in the loop.
+#
+#   1. The host is found BY TAG, never by IP or instance id. A rebuilt host has
+#      a new id and a new address; anything hardcoded breaks the moment staging
+#      is recreated, which is exactly when it must not break.
+#
+#   2. Delivery is via SSM, not SSH. A fresh host registers with SSM through its
+#      instance profile within about a minute of boot -- no key pair to create,
+#      distribute or rotate, and every command is recorded in CloudTrail. The
+#      appleboy/ssh-action pattern used elsewhere needs a key on a host that
+#      does not exist yet.
+#
+# Auth is OIDC. No long-lived AWS keys in repository secrets.
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: "Application name. Must match the Name tag prefix of its compose directory under /opt/seolith/staging/."
+        required: true
+        type: string
+      compose-file:
+        description: "Compose file to bring up, relative to the app directory."
+        required: false
+        type: string
+        default: "docker-compose.staging.yml"
+      image-tag:
+        description: "Image tag to deploy. Defaults to the triggering commit."
+        required: false
+        type: string
+        default: ""
+      health-url:
+        description: "URL polled after deploy. Empty skips the check -- discouraged."
+        required: false
+        type: string
+        default: ""
+      health-timeout-seconds:
+        required: false
+        type: number
+        default: 180
+      environment-tag:
+        description: "Value of the Environment tag identifying the target host."
+        required: false
+        type: string
+        default: "staging"
+      aws-region:
+        required: false
+        type: string
+        default: "us-east-2"
+      runs-on:
+        description: >-
+          GitHub-hosted by default, deliberately. Staging rebuild must not
+          depend on self-hosted runners in an office; if that hardware is down,
+          the rebuild button has to still work.
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+    secrets:
+      AWS_DEPLOY_ROLE_ARN:
+        description: "Role assumed via OIDC. Needs ssm:SendCommand and ec2:DescribeInstances."
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC
+
+jobs:
+  deploy:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ inputs.aws-region }}
+          role-session-name: deploy-${{ inputs.app-name }}-${{ github.run_id }}
+
+      - name: Resolve the staging host by tag
+        id: host
+        run: |
+          set -euo pipefail
+          # Deliberately NOT an instance id. Whatever host currently carries the
+          # staging tag is the target, including one created ten minutes ago.
+          ID=$(aws ec2 describe-instances \
+                --filters "Name=tag:Environment,Values=${{ inputs.environment-tag }}" \
+                          "Name=tag:Role,Values=app-host" \
+                          "Name=instance-state-name,Values=running" \
+                --query 'Reservations[].Instances[].InstanceId' --output text)
+
+          COUNT=$(echo "$ID" | wc -w)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No running host tagged Environment=${{ inputs.environment-tag }}, Role=app-host. Run the staging Terraform first."
+            exit 1
+          fi
+          if [ "$COUNT" -gt 1 ]; then
+            echo "::error::$COUNT hosts match. Refusing to guess: $ID"
+            exit 1
+          fi
+
+          echo "instance-id=$ID" >> "$GITHUB_OUTPUT"
+          echo "Target: $ID"
+
+      - name: Wait for SSM to be ready
+        run: |
+          set -euo pipefail
+          # A freshly built host may not have registered yet. Waiting here is
+          # what lets a rebuild deploy immediately rather than failing once and
+          # needing a manual retry.
+          for i in $(seq 1 30); do
+            PING=$(aws ssm describe-instance-information \
+                    --filters "Key=InstanceIds,Values=${{ steps.host.outputs.instance-id }}" \
+                    --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo "None")
+            [ "$PING" = "Online" ] && { echo "SSM online after ${i} attempt(s)"; exit 0; }
+            sleep 10
+          done
+          echo "::error::SSM did not come online within 5 minutes."
+          exit 1
+
+      - name: Deploy
+        id: deploy
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.image-tag }}"
+          [ -z "$TAG" ] && TAG="${GITHUB_SHA::7}"
+          APP_DIR="/opt/seolith/staging/${{ inputs.app-name }}"
+
+          # Idempotent by construction: creates the directory if absent, pulls,
+          # and brings the stack up. Assumes nothing already exists on the host.
+          CMD=$(cat <<EOF
+          set -euo pipefail
+          mkdir -p "$APP_DIR"
+          cd "$APP_DIR"
+          if [ ! -f "${{ inputs.compose-file }}" ]; then
+            echo "MISSING_COMPOSE: ${{ inputs.compose-file }} not found in $APP_DIR" >&2
+            exit 2
+          fi
+          export IMAGE_TAG="$TAG"
+          docker compose -f "${{ inputs.compose-file }}" pull --quiet || true
+          docker compose -f "${{ inputs.compose-file }}" up -d --remove-orphans
+          docker compose -f "${{ inputs.compose-file }}" ps
+          EOF
+          )
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.host.outputs.instance-id }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "deploy ${{ inputs.app-name }} @ $TAG" \
+            --timeout-seconds 900 \
+            --parameters "commands=[$(jq -Rs . <<< "$CMD")]" \
+            --query 'Command.CommandId' --output text)
+
+          echo "command-id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          aws ssm wait command-executed \
+            --command-id "$CMD_ID" \
+            --instance-id "${{ steps.host.outputs.instance-id }}" || true
+
+          STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+                    --instance-id "${{ steps.host.outputs.instance-id }}" \
+                    --query 'Status' --output text)
+          echo "--- stdout ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" \
+            --instance-id "${{ steps.host.outputs.instance-id }}" \
+            --query 'StandardOutputContent' --output text
+          if [ "$STATUS" != "Success" ]; then
+            echo "--- stderr ---"
+            aws ssm get-command-invocation --command-id "$CMD_ID" \
+              --instance-id "${{ steps.host.outputs.instance-id }}" \
+              --query 'StandardErrorContent' --output text
+            echo "::error::Deploy failed with status $STATUS"
+            exit 1
+          fi
+
+      - name: Health check
+        if: inputs.health-url != ''
+        run: |
+          set -euo pipefail
+          DEADLINE=$(( $(date +%s) + ${{ inputs.health-timeout-seconds }} ))
+          until [ "$(date +%s)" -ge "$DEADLINE" ]; do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ inputs.health-url }}" || echo 000)
+            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 400 ]; then
+              echo "Healthy (HTTP $CODE)"
+              exit 0
+            fi
+            echo "waiting... (HTTP $CODE)"
+            sleep 10
+          done
+          echo "::error::${{ inputs.app-name }} did not become healthy within ${{ inputs.health-timeout-seconds }}s."
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Staging deploy — ${{ inputs.app-name }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Host | \`${{ steps.host.outputs.instance-id }}\` |"
+            echo "| Compose | \`${{ inputs.compose-file }}\` |"
+            echo "| SSM command | \`${{ steps.deploy.outputs.command-id }}\` |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
