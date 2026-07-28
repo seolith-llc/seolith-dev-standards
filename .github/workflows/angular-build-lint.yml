@@ -39,7 +39,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
       - name: Run AgentShield Security Scan
-        run: npx ecc-agentshield scan --path "${{ github.workspace }}" --gate
+        run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate
 
       - name: Detect Project Path
         id: detect
