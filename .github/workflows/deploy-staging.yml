@@ -190,7 +190,7 @@ jobs:
     steps:
       # PIN THESE TO COMMIT SHAs BEFORE THE FIRST LIVE RUN -- see step 5 of the
       # rollout. This job holds OIDC credentials on a non-ephemeral runner.
-      - uses: actions/checkout@v5 # TODO pin to SHA
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       # ---------------------------------------------------------------------
       # Validate every caller-controlled input BEFORE it reaches a shell.
@@ -298,7 +298,7 @@ jobs:
           echo "inputs ok"
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4 # TODO pin to SHA
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ inputs.aws-region }}
