@@ -87,8 +87,20 @@ jobs:
           $build = "${{ inputs.build-command }}"
           $package = Get-Content package.json -Raw | ConvertFrom-Json
           if ($build -eq "npm run build" -and -not $package.scripts.build) {
-            echo "No build script found; running npm test when available."
-            if ($package.scripts.test) { npm test }
+            # `exit 0` used to sit here unconditionally, AFTER npm test. A repo
+            # with no build script and a FAILING test suite got a green check:
+            # the tests ran, printed their failures, and the result was thrown
+            # away. That is worse than having no tests, because the badge said
+            # otherwise. 32 of 72 active repos run CI that never executes a
+            # test; this lane was quietly one of them for any repo without a
+            # build script.
+            if ($package.scripts.test) {
+              echo "No build script; running npm test and HONOURING its exit code."
+              npm test
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } else {
+              echo "No build script and no test script; nothing to do."
+            }
             exit 0
           }
           Invoke-Expression $build
