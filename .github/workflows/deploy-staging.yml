@@ -25,11 +25,16 @@ on:
         description: "Application name. Must match the Name tag prefix of its compose directory under /opt/seolith/staging/."
         required: true
         type: string
-      compose-file:
-        description: "Compose file to bring up, relative to the app directory."
+      compose-files:
+        description: >-
+          Space-separated compose files, applied in order, relative to the app
+          directory. Most apps here use OVERLAYS -- pto-admin's
+          docker-compose.staging.yml declares an `api` service with no image or
+          build, so it only works layered over the base docker-compose.yml.
+          Passing the overlay alone fails with a missing-image error.
         required: false
         type: string
-        default: "docker-compose.staging.yml"
+        default: "docker-compose.yml docker-compose.staging.yml"
       image-tag:
         description: "Image tag to deploy. Defaults to the triggering commit."
         required: false
@@ -140,14 +145,23 @@ jobs:
           set -euo pipefail
           mkdir -p "$APP_DIR"
           cd "$APP_DIR"
-          if [ ! -f "${{ inputs.compose-file }}" ]; then
-            echo "MISSING_COMPOSE: ${{ inputs.compose-file }} not found in $APP_DIR" >&2
-            exit 2
-          fi
+          # Build the -f chain. Order matters: later files override earlier
+          # ones, so the base must come first.
+          FLAGS=""
+          for f in ${{ inputs.compose-files }}; do
+            if [ ! -f "\$f" ]; then
+              echo "MISSING_COMPOSE: \$f not found in $APP_DIR" >&2
+              ls -1 "$APP_DIR" >&2
+              exit 2
+            fi
+            FLAGS="\$FLAGS -f \$f"
+          done
+
           export IMAGE_TAG="$TAG"
-          docker compose -f "${{ inputs.compose-file }}" pull --quiet || true
-          docker compose -f "${{ inputs.compose-file }}" up -d --remove-orphans
-          docker compose -f "${{ inputs.compose-file }}" ps
+          docker compose \$FLAGS config --quiet
+          docker compose \$FLAGS pull --quiet || true
+          docker compose \$FLAGS up -d --remove-orphans
+          docker compose \$FLAGS ps
           EOF
           )
 
@@ -206,7 +220,7 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| Host | \`${{ steps.host.outputs.instance-id }}\` |"
-            echo "| Compose | \`${{ inputs.compose-file }}\` |"
+            echo "| Compose | \`${{ inputs.compose-files }}\` |"
             echo "| SSM command | \`${{ steps.deploy.outputs.command-id }}\` |"
             echo "| Result | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
