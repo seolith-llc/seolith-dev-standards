@@ -586,7 +586,16 @@ jobs:
           set -euo pipefail
           cd "$APP_DIR"
           [ -f .deploy-previous-image-refs ] || { echo "NO_ROLLBACK_POINT" >&2; exit 7; }
-          FLAGS=""; for f in $COMPOSE_FILES; do FLAGS="$FLAGS -f $f"; done
+          # -p FIRST, exactly as the deploy path builds it. Without it the
+          # rollback runs under the DIRECTORY-DERIVED project name while the
+          # deploy ran under project-name -- so `up -d --remove-orphans` would
+          # address a different project, treat the real containers as orphans,
+          # and remove them. The rollback would destroy what it was invoked to
+          # save, and only for callers that set project-name, i.e. exactly the
+          # ones with a name collision to avoid in the first place.
+          FLAGS=""
+          [ -n "${PROJECT_NAME:-}" ] && FLAGS="-p ${PROJECT_NAME}"
+          for f in $COMPOSE_FILES; do FLAGS="$FLAGS -f $f"; done
           while IFS= read -r r; do
             rest="${r#*/}"; var="${rest%%=*}"; ref="${rest#*=}"
             export "$var=$ref"; echo "restoring $var=$ref"
