@@ -32,7 +32,7 @@ jobs:
           node-version: "24"
       
       - name: Run AgentShield Security Scan
-        run: npx ecc-agentshield scan --path "${{ github.workspace }}" --gate
+        run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate
         
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
