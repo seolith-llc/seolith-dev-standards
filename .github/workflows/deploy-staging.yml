@@ -104,8 +104,9 @@ on:
         default: ""
       pull-services:
         description: >-
-          Space-separated service names the pull step may touch. REQUIRED when
-          ecr-registry is set. A bare `docker compose pull` re-resolves floating
+          Space-separated service names the pull step may touch, or the literal
+          `none` to pull nothing (correct for apps that build on the host).
+          REQUIRED when ecr-registry is set. A bare `docker compose pull` re-resolves floating
           tags on data services too -- verified on Compose v5.3.1 that it targets
           every service and that pull_policy:missing does not exempt them. Empty
           preserves the old best-effort whole-project pull.
@@ -204,6 +205,7 @@ jobs:
           SYNC_FILES: ${{ inputs.sync-files }}
           ECR_REGISTRY: ${{ inputs.ecr-registry }}
           PULL_SERVICES: ${{ inputs.pull-services }}
+          ROLLBACK_ON_FAILURE: ${{ inputs.rollback-on-failure }}
           CREATE_VOLUMES: ${{ inputs.create-volumes }}
           REQUIRE_VOLUMES: ${{ inputs.require-volumes }}
           IMAGE_REFS: ${{ inputs.image-refs }}
@@ -218,6 +220,15 @@ jobs:
 
           # app-dir is interpolated into a script that runs as ROOT. Unchecked,
           # it points the deploy at any directory on the host.
+          # rollback-on-failure without health-url is DEAD CONFIG that reads as
+          # a safety net. The health step is `if: inputs.health-url != ''` and
+          # rollback is `if: ... steps.health.outcome == 'failure'`; a SKIPPED
+          # step never has outcome 'failure', so rollback can never fire and
+          # every deploy reports green. Fail loudly rather than pretend.
+          if [ "${ROLLBACK_ON_FAILURE}" = "true" ] && [ -z "$HEALTH_URL" ]; then
+            die "rollback-on-failure: true requires health-url. Without it the health step is SKIPPED, skipped is not failure, and the rollback can never trigger -- the deploy would report success no matter what it did."
+          fi
+
           # Compose project names are restricted to lowercase alphanumerics,
           # hyphen and underscore. An invalid one is rejected by Compose only
           # AFTER the volume prefix has been computed, so validate it here.
@@ -503,9 +514,20 @@ jobs:
           # floating tags on postgres/redis and can move a database engine
           # underneath its volume. It would also make every deploy depend on
           # anonymous Docker Hub pulls from a single shared EC2 IP.
-          if [ -n "${PULL_SERVICES:-}" ]; then
+          # Three cases, because "pull nothing" and "pull everything" are
+          # different intents and the old code could not express the first.
+          # An app that builds on the host has NO honest non-empty value here,
+          # and defaulting it to the unscoped pull is how a database engine
+          # gets moved underneath its volume.
+          if [ "${PULL_SERVICES:-}" = "none" ]; then
+            echo "pull: skipped (pull-services: none)"
+          elif [ -n "${PULL_SERVICES:-}" ]; then
             docker compose $FLAGS pull $PULL_SERVICES
           else
+            echo "WARNING: pull-services is empty, falling back to an UNSCOPED pull." >&2
+            echo "         This re-resolves floating tags on EVERY service, data" >&2
+            echo "         services included. Set pull-services explicitly, or" >&2
+            echo "         'none' if this app builds on the host." >&2
             docker compose $FLAGS pull --quiet || true
           fi
 
