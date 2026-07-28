@@ -1,0 +1,223 @@
+name: Reusable Build and Push to ECR
+
+# Builds application images OFF the staging host and publishes them to ECR.
+#
+# Why this exists: pto-admin's compose gave api/web a `build:` and no `image:`,
+# so `docker compose up -d` reused whatever local image already existed. The
+# pipeline ran green for six weeks while shipping nothing.
+#
+# Self-hosted by necessity: the org's 3,000 included Actions minutes are spent
+# and the spending limit is $0, so GitHub-hosted jobs are refused.
+#
+# The tag is ALWAYS sha-$GITHUB_SHA. There is deliberately no caller-supplied
+# tag input: combined with a lifecycle policy that eventually expires old sha-
+# tags, a chooseable tag would let a later build re-publish an aged-out tag that
+# a documented rollback still refers to. The deploy consumes DIGESTS, resolved
+# here from ECR after the push, so that hole is closed twice over.
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: >-
+          JSON array of build targets. Each entry needs `name`, `repository`,
+          `dockerfile`, `context`, `env` (the variable name the compose file
+          reads), `service` (the compose service it belongs to), and optionally
+          `build-args` (newline-separated KEY=VALUE).
+        required: true
+        type: string
+      platform:
+        description: >-
+          Build platform. MUST match the deployment host's architecture. The
+          estate has no single answer: infra/modules/platform/variables.tf
+          validates instance types to Graviton only and app-host selects an
+          arm64 AMI, while pto-admin's Dockerfile.api hard-codes
+          `--runtime linux-musl-x64`. Confirm with describe-instances before the
+          first deploy; the deploy workflow also asserts this host-side.
+        required: false
+        type: string
+        default: "linux/amd64"
+      aws-region:
+        required: false
+        type: string
+        default: "us-east-2"
+      runs-on:
+        description: "Broad self-hosted pool. A build is re-runnable and blocks nothing, so it does not need `always-on`."
+        required: false
+        type: string
+        default: '["self-hosted","Linux","X64","seolith-local"]'
+      timeout-minutes:
+        required: false
+        type: number
+        default: 45
+    secrets:
+      AWS_ECR_PUSH_ROLE_ARN:
+        description: "Role assumed via OIDC. ecr:GetAuthorizationToken plus push actions scoped to these repositories."
+        required: true
+    outputs:
+      image-tag:
+        description: "The tag that was published (sha-<full commit sha>)."
+        value: ${{ jobs.collect.outputs.image-tag }}
+      image-refs:
+        description: "Space-separated <service>/<VAR>=<repo>@sha256:<digest> triples. Feed straight into deploy-staging.yml's image-refs."
+        value: ${{ jobs.collect.outputs.image-refs }}
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC
+
+jobs:
+  build:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: true
+      matrix:
+        image: ${{ fromJSON(inputs.images) }}
+
+    steps:
+      - uses: actions/checkout@v5 # TODO pin to SHA
+
+      # The runner is Docker Desktop under WSL2, so daemon availability is tied
+      # to the Windows session. This gate is the difference between a clear
+      # error and a confusing one.
+      - name: Wait for the Docker daemon
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 18); do
+            if docker info >/dev/null 2>&1; then
+              echo "Docker ready after $((i*5))s"
+              docker info --format 'engine={{.ServerVersion}} os={{.OperatingSystem}} cpus={{.NCPU}} arch={{.Architecture}}'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Docker daemon not reachable after 90s."; exit 1
+
+      # The runner inherits credsStore: desktop, but docker-credential-desktop.exe
+      # is not on the service PATH, so `docker login` dies with "executable file
+      # not found". Not hypothetical -- seolith-email-manager hit this.
+      - name: Use a throwaway Docker config
+        run: |
+          mkdir -p "$RUNNER_TEMP/docker-config"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4 # TODO pin to SHA
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ inputs.aws-region }}
+          role-session-name: build-${{ matrix.image.name }}-${{ github.run_id }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2 # TODO pin to SHA
+
+      # The repositories are IMMUTABLE, so re-running on the same commit would
+      # fail the push. Treat an existing tag as success. This must FAIL CLOSED:
+      # a missing CLI or an IAM error inside `if` would otherwise record
+      # found=false under set -e and produce a red ImageAlreadyExistsException.
+      - name: Skip if this tag already exists
+        id: exists
+        env:
+          REPO: ${{ matrix.image.repository }}
+          REGION: ${{ inputs.aws-region }}
+        run: |
+          set -euo pipefail
+          command -v aws >/dev/null || { echo "::error::aws CLI missing on $RUNNER_NAME"; exit 1; }
+          TAG="sha-${GITHUB_SHA}"
+          set +e
+          ERR=$(aws ecr describe-images --repository-name "$REPO" --image-ids imageTag="$TAG" --region "$REGION" 2>&1 >/dev/null)
+          RC=$?
+          set -e
+          if [ $RC -eq 0 ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"; echo "$REPO:$TAG already published."
+          elif printf '%s' "$ERR" | grep -q 'ImageNotFoundException'; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Could not determine whether $REPO:$TAG exists: $ERR"; exit 1
+          fi
+
+      - name: Set up Buildx
+        if: steps.exists.outputs.found != 'true'
+        uses: docker/setup-buildx-action@v3 # TODO pin to SHA
+
+      - name: Build and push
+        if: steps.exists.outputs.found != 'true'
+        uses: docker/build-push-action@v6 # TODO pin to SHA
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          build-args: ${{ matrix.image.build-args }}
+          platforms: ${{ inputs.platform }}
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image.repository }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          # type=gha: free, proven from this runner, and keeps multi-GB cache OFF
+          # the runner's Docker Desktop vhdx (which does not shrink on prune).
+          # NOT type=registry in ECR -- the runner sits in an office, so pulling
+          # cache back would be billed AWS egress on every build.
+          cache-from: type=gha,scope=${{ github.repository }}-${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ github.repository }}-${{ matrix.image.name }}
+          # Attestations publish extra untagged manifests, which fight both
+          # IMMUTABLE tags and the lifecycle policy.
+          provenance: false
+          sbom: false
+
+  # Resolves digests FROM ECR rather than trusting the build step's report. That
+  # makes this a post-condition check: the artifact is provably in the registry.
+  # Also avoids the matrix-output last-wins trap entirely.
+  collect:
+    needs: [build]
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    outputs:
+      image-tag: ${{ steps.refs.outputs.image-tag }}
+      image-refs: ${{ steps.refs.outputs.image-refs }}
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4 # TODO pin to SHA
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ inputs.aws-region }}
+          role-session-name: collect-${{ github.run_id }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2 # TODO pin to SHA
+
+      - name: Resolve digests
+        id: refs
+        env:
+          IMAGES_JSON: ${{ inputs.images }}
+          REGION: ${{ inputs.aws-region }}
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          command -v python3 >/dev/null || { echo "::error::python3 missing on $RUNNER_NAME"; exit 1; }
+          TAG="sha-${GITHUB_SHA}"
+          REFS=""
+          while IFS='|' read -r name repo svc var; do
+            [ -z "$repo" ] && continue
+            D=$(aws ecr describe-images --repository-name "$repo" \
+                  --image-ids imageTag="$TAG" --region "$REGION" \
+                  --query 'imageDetails[0].imageDigest' --output text)
+            printf '%s' "$D" | grep -qE '^sha256:[0-9a-f]{64}$' \
+              || { echo "::error::$repo:$TAG did not resolve to a digest (got '$D')"; exit 1; }
+            REFS="$REFS $svc/$var=$REGISTRY/$repo@$D"
+            echo "$name -> $repo@$D"
+          done <<EOF
+          $(printf '%s' "$IMAGES_JSON" | python3 -c 'import json,sys; [print("|".join([i["name"],i["repository"],i["service"],i["env"]])) for i in json.load(sys.stdin)]')
+          EOF
+          REFS="${REFS# }"
+          echo "image-tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "image-refs=$REFS" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Published"
+            echo ""
+            echo "Tag: \`$TAG\`"
+            echo ""
+            for r in $REFS; do echo "- \`$r\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
