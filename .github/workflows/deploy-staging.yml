@@ -165,12 +165,29 @@ jobs:
           EOF
           )
 
+          # Ship the script base64-encoded rather than embedding it in JSON.
+          #
+          # Two problems solved at once. The first version used `jq -Rs .` to
+          # escape the script; jq ships on GitHub-hosted runners but NOT on the
+          # self-hosted runner this workflow now uses, so it died with
+          # "jq: command not found" before sending anything. The second is that
+          # the script is full of quotes, newlines and $ signs -- exactly the
+          # characters that make hand-rolled JSON escaping fragile.
+          #
+          # base64 output is [A-Za-z0-9+/=] only, so it drops into a JSON string
+          # with no escaping at all, and printf can build the document safely.
+          # base64 is coreutils, present wherever bash is.
+          B64=$(printf '%s' "$CMD" | base64 -w0 2>/dev/null || printf '%s' "$CMD" | base64 | tr -d '\n')
+
+          PARAMS="$RUNNER_TEMP/ssm-params-$GITHUB_RUN_ID.json"
+          printf '{"commands":["echo %s | base64 -d | bash"]}' "$B64" > "$PARAMS"
+
           CMD_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.host.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "deploy ${{ inputs.app-name }} @ $TAG" \
             --timeout-seconds 900 \
-            --parameters "commands=[$(jq -Rs . <<< "$CMD")]" \
+            --parameters "file://$PARAMS" \
             --query 'Command.CommandId' --output text)
 
           echo "command-id=$CMD_ID" >> "$GITHUB_OUTPUT"
