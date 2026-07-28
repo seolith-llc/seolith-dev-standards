@@ -51,6 +51,30 @@ on:
         required: false
         type: string
         default: ""
+      project-name:
+        description: >-
+          Compose project name, passed as `-p`. Empty lets Compose derive it from
+          the DIRECTORY BASENAME, which is wrong in two distinct and dangerous
+          ways on this fleet.
+
+          COLLISION. Both lks-site-and-portal and seolith-domain-suite keep their
+          compose under a `deploy/` subdirectory, so both derive the project name
+          `deploy`. Deploying one would treat the other's containers as belonging
+          to it and recreate or remove them -- a cross-app outage caused by
+          deploying an unrelated app.
+
+          VOLUME RENAMING. Compose prefixes every non-external volume with the
+          project name. Change the project and `staging_pg_data` silently becomes
+          a DIFFERENT volume that does not exist yet. Compose creates it empty,
+          Postgres runs initdb, the container reports healthy and the health
+          check passes -- with every row gone. There are no backups anywhere in
+          this estate. Set this to the project name the containers already carry,
+          read from the host:
+
+            docker inspect <container> --format '{{index .Config.Labels "com.docker.compose.project"}}'
+        required: false
+        type: string
+        default: ""
       compose-files:
         description: >-
           Space-separated compose files, applied in order, relative to the app
@@ -176,6 +200,7 @@ jobs:
           APP_NAME: ${{ inputs.app-name }}
           APP_DIR_IN: ${{ inputs.app-dir }}
           COMPOSE_FILES: ${{ inputs.compose-files }}
+          PROJECT_NAME: ${{ inputs.project-name }}
           SYNC_FILES: ${{ inputs.sync-files }}
           ECR_REGISTRY: ${{ inputs.ecr-registry }}
           PULL_SERVICES: ${{ inputs.pull-services }}
@@ -193,6 +218,24 @@ jobs:
 
           # app-dir is interpolated into a script that runs as ROOT. Unchecked,
           # it points the deploy at any directory on the host.
+          # Compose project names are restricted to lowercase alphanumerics,
+          # hyphen and underscore. An invalid one is rejected by Compose only
+          # AFTER the volume prefix has been computed, so validate it here.
+          # A name in BOTH lists makes require-volumes dead code: the create
+          # loop makes it exist, so the require loop can never fail. That is not
+          # a redundant assertion, it is an assertion that silently stopped
+          # asserting -- exactly the shape of check people trust and shouldn't.
+          for c in $CREATE_VOLUMES; do
+            for r in $REQUIRE_VOLUMES; do
+              [ "$c" = "$r" ] && die "volume '$c' is in BOTH create-volumes and require-volumes. create runs first, so the require check could never fail. Pick one: create-volumes to bootstrap a fresh host, require-volumes to assert data already exists."
+            done
+          done
+
+          if [ -n "$PROJECT_NAME" ]; then
+            printf '%s' "$PROJECT_NAME" | grep -qE '^[a-z0-9][a-z0-9_-]*$' \
+              || die "project-name '$PROJECT_NAME' must match ^[a-z0-9][a-z0-9_-]*$"
+          fi
+
           if [ -n "$APP_DIR_IN" ]; then
             printf '%s' "$APP_DIR_IN" | grep -qE '^/[A-Za-z0-9][A-Za-z0-9._/-]*$' \
               || die "app-dir '$APP_DIR_IN' must be an absolute path of [A-Za-z0-9._/-]"
@@ -309,6 +352,7 @@ jobs:
           APP_NAME: ${{ inputs.app-name }}
           APP_DIR_IN: ${{ inputs.app-dir }}
           COMPOSE_FILES: ${{ inputs.compose-files }}
+          PROJECT_NAME: ${{ inputs.project-name }}
           SYNC_FILES: ${{ inputs.sync-files }}
           ECR_REGISTRY: ${{ inputs.ecr-registry }}
           AWS_REGION_IN: ${{ inputs.aws-region }}
@@ -327,6 +371,7 @@ jobs:
           {
             printf 'APP_DIR=%q\n'        "$APP_DIR"
             printf 'COMPOSE_FILES=%q\n'  "$COMPOSE_FILES"
+            printf 'PROJECT_NAME=%q\n'   "$PROJECT_NAME"
             printf 'ECR_REGISTRY=%q\n'   "$ECR_REGISTRY"
             printf 'AWS_REGION=%q\n'     "$AWS_REGION_IN"
             printf 'PULL_SERVICES=%q\n'  "$PULL_SERVICES"
@@ -357,7 +402,10 @@ jobs:
           done
 
           # --- compose flags ------------------------------------------------
+          # -p FIRST, before any -f. Compose resolves the project name while
+          # parsing, so it must be set before the files are read.
           FLAGS=""
+          [ -n "${PROJECT_NAME:-}" ] && FLAGS="-p ${PROJECT_NAME}"
           for f in $COMPOSE_FILES; do
             if [ ! -f "$f" ]; then
               echo "MISSING_COMPOSE: $f not found in $APP_DIR" >&2; ls -1 "$APP_DIR" >&2; exit 2
@@ -402,13 +450,27 @@ jobs:
           # --- volumes ------------------------------------------------------
           # create-volumes runs first so a rebuilt host is not permanently
           # blocked. Creating an existing volume is a no-op.
+          # ASSERT FIRST, then create. The old order ran create before require,
+          # so anything listed in both was brought into existence and then
+          # "verified" -- the check passed by construction.
+          #
+          # READ THIS BEFORE TRUSTING require-volumes: it proves a volume with
+          # that NAME exists. It cannot prove the volume holds your data, and a
+          # typo'd name is the dangerous case -- `docker volume create` succeeds
+          # on any name, Postgres runs initdb into the empty volume, the
+          # container reports healthy and the deploy goes green with every row
+          # gone. The real guarantee is `external: true` with a literal name in
+          # the compose file, which makes Compose refuse to invent one. This is a
+          # legibility check on top of that, not a replacement for it.
+          for v in ${REQ_VOLUMES:-}; do
+            docker volume inspect "$v" >/dev/null 2>&1 || {
+              echo "MISSING_VOLUME: $v does not exist. Refusing to deploy." >&2
+              echo "volumes present:" >&2; docker volume ls --format '  {{.Name}}' >&2
+              exit 4; }
+          done
           for v in ${CREATE_VOLUMES:-}; do
             docker volume inspect "$v" >/dev/null 2>&1 || {
               echo "creating volume $v"; docker volume create "$v" >/dev/null; }
-          done
-          for v in ${REQ_VOLUMES:-}; do
-            docker volume inspect "$v" >/dev/null 2>&1 || {
-              echo "MISSING_VOLUME: $v does not exist and was not in create-volumes. Refusing to deploy." >&2; exit 4; }
           done
 
           # --- ECR login ----------------------------------------------------
@@ -607,6 +669,7 @@ jobs:
           APP_NAME: ${{ inputs.app-name }}
           APP_DIR_IN: ${{ inputs.app-dir }}
           COMPOSE_FILES: ${{ inputs.compose-files }}
+          PROJECT_NAME: ${{ inputs.project-name }}
           SYNC_FILES: ${{ inputs.sync-files }}
           PULL_SERVICES: ${{ inputs.pull-services }}
         run: |
