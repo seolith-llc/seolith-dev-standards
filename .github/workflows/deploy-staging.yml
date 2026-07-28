@@ -31,6 +31,26 @@ on:
         description: "Directory name under /opt/seolith/staging/. NOT the container prefix."
         required: true
         type: string
+      app-dir:
+        description: >-
+          Absolute path to the app's compose directory. Empty derives
+          /opt/seolith/staging/<app-name>, which is CORRECT FOR MOST APPS AND
+          WRONG FOR SEVERAL. Read off the staging host, not assumed:
+
+            alex-lopez-va         /home/ubuntu/alexlopezva-staging
+            lks-site-and-portal   /opt/seolith/staging/lks-site-and-portal/deploy
+            seolith-domain-suite  /opt/seolith/staging/seolith-domain-suite/deploy
+            lks-ads               /opt/seolith/lks-ads-staging
+
+          Directory names also differ from repository names -- apps-showcase vs
+          seolith-apps-showcase, portal vs seolith-portal, twbb vs seolith-twbb --
+          so app-name cannot be assumed to be the repo name either. Confirm with
+          `docker inspect <container> --format
+          '{{index .Config.Labels "com.docker.compose.project.config_files"}}'`
+          before setting this.
+        required: false
+        type: string
+        default: ""
       compose-files:
         description: >-
           Space-separated compose files, applied in order, relative to the app
@@ -154,6 +174,7 @@ jobs:
       - name: Validate inputs
         env:
           APP_NAME: ${{ inputs.app-name }}
+          APP_DIR_IN: ${{ inputs.app-dir }}
           COMPOSE_FILES: ${{ inputs.compose-files }}
           SYNC_FILES: ${{ inputs.sync-files }}
           ECR_REGISTRY: ${{ inputs.ecr-registry }}
@@ -169,6 +190,14 @@ jobs:
 
           printf '%s' "$APP_NAME" | grep -qE '^[a-z0-9][a-z0-9._-]{0,63}$' \
             || die "app-name '$APP_NAME' is not a safe directory name"
+
+          # app-dir is interpolated into a script that runs as ROOT. Unchecked,
+          # it points the deploy at any directory on the host.
+          if [ -n "$APP_DIR_IN" ]; then
+            printf '%s' "$APP_DIR_IN" | grep -qE '^/[A-Za-z0-9][A-Za-z0-9._/-]*$' \
+              || die "app-dir '$APP_DIR_IN' must be an absolute path of [A-Za-z0-9._/-]"
+            case "$APP_DIR_IN" in *..*) die "app-dir '$APP_DIR_IN' contains traversal" ;; esac
+          fi
 
           for f in $COMPOSE_FILES; do
             printf '%s' "$f" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/-]*$' || die "compose-files: unsafe path '$f'"
@@ -278,6 +307,7 @@ jobs:
         id: script
         env:
           APP_NAME: ${{ inputs.app-name }}
+          APP_DIR_IN: ${{ inputs.app-dir }}
           COMPOSE_FILES: ${{ inputs.compose-files }}
           SYNC_FILES: ${{ inputs.sync-files }}
           ECR_REGISTRY: ${{ inputs.ecr-registry }}
@@ -291,7 +321,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$IMAGE_TAG_IN"; [ -z "$TAG" ] && TAG="${GITHUB_SHA::7}"
-          APP_DIR="/opt/seolith/staging/$APP_NAME"
+          APP_DIR="${APP_DIR_IN:-/opt/seolith/staging/$APP_NAME}"
 
           PRE="$RUNNER_TEMP/prelude.sh"
           {
@@ -493,6 +523,7 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.host.outputs.instance-id }}
           APP_NAME: ${{ inputs.app-name }}
+          APP_DIR_IN: ${{ inputs.app-dir }}
           TAG: ${{ steps.script.outputs.image-tag }}
         run: |
           set -euo pipefail
@@ -538,6 +569,7 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.host.outputs.instance-id }}
           APP_NAME: ${{ inputs.app-name }}
+          APP_DIR_IN: ${{ inputs.app-dir }}
         run: |
           set -euo pipefail
           echo "::warning::Health check failed. Restoring the image refs recorded before this deploy."
@@ -559,6 +591,7 @@ jobs:
         if: steps.health.outcome == 'failure'
         env:
           APP_NAME: ${{ inputs.app-name }}
+          APP_DIR_IN: ${{ inputs.app-dir }}
           ROLLBACK_ON_FAILURE: ${{ inputs.rollback-on-failure }}
         run: |
           echo "::error::$APP_NAME did not become healthy. Rollback attempted: $ROLLBACK_ON_FAILURE."
@@ -572,6 +605,7 @@ jobs:
         # still execute here, on the runner, after being refused.
         env:
           APP_NAME: ${{ inputs.app-name }}
+          APP_DIR_IN: ${{ inputs.app-dir }}
           COMPOSE_FILES: ${{ inputs.compose-files }}
           SYNC_FILES: ${{ inputs.sync-files }}
           PULL_SERVICES: ${{ inputs.pull-services }}
