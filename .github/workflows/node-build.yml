@@ -104,3 +104,33 @@ jobs:
             exit 0
           }
           Invoke-Expression $build
+
+      # M9: run the test suite and HONOUR its exit code.
+      #
+      # A 2026-07-29 sweep found 53 of 72 active repos whose CI executes no test
+      # command at all -- and 11 of those DO have a test suite that CI simply
+      # never ran. This lane was a direct cause: it linted and built, and never
+      # tested, for every repo that calls it.
+      #
+      # Absence of a `test` script is not a failure -- many callers are static
+      # sites. A test script that FAILS is a failure, and must be, or the green
+      # check is a lie. That distinction is the whole point of the rule.
+      - name: Test
+        shell: pwsh
+        working-directory: ${{ steps.detect.outputs.path }}
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if (-not $pkg.scripts.test) {
+            Write-Host "No 'test' script in package.json; nothing to run."
+            exit 0
+          }
+          if ($pkg.scripts.test -match 'no test specified') {
+            Write-Host "package.json has the npm-init placeholder test script; skipping."
+            exit 0
+          }
+          Write-Host "Running: npm test"
+          npm test --if-present
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Tests failed (exit $LASTEXITCODE)."
+            exit $LASTEXITCODE
+          }
