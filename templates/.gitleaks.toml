@@ -1,0 +1,48 @@
+# Baseline gitleaks config for seolith-llc repositories.
+#
+# Copy to the repo root as `.gitleaks.toml` and add ONLY narrow, justified
+# allowlist entries beneath. Adapted from seolith-omnifield's config, which was
+# the estate's first and — until 2026-07-28 — only one.
+#
+# The allowlist is a debt ledger, not a settings file. Every entry means a real
+# secret is committed and is waiting to be rotated. Delete entries as they are
+# fixed. An allowlist that only ever grows is a scanner that has been switched
+# off slowly.
+
+title = "seolith gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Narrow, justified exceptions only"
+
+# Paths that legitimately contain secret-SHAPED values which are not secrets:
+# fixtures, example files, and this config itself (its regexes look like keys).
+#
+# The [\\/] class matches both separators deliberately — gitleaks reports paths
+# using the host OS separator, and this estate runs BOTH Linux and Windows
+# self-hosted runners. A '/'-only pattern silently fails on the Windows pool.
+paths = [
+  '''\.gitleaks\.toml''',
+  '''(^|[\\/])\.env\.example$''',
+  '''(^|[\\/])appsettings\.Example\.json$''',
+  '''[\\/]__fixtures__[\\/]''',
+  '''[\\/]testdata[\\/]''',
+]
+
+# Literal placeholders that must never trip the scanner anywhere in the tree.
+# Keep this list short and obviously-fake.
+regexes = [
+  '''CHANGEME''',
+  '''REPLACE_ME''',
+  '''PLACEHOLDER-REPLACE-VIA-CLI''',
+  '''your-secret-here''',
+  '''xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx''',
+]
+
+# NOT allowlisted, deliberately, and do not add them:
+#   *.pem, *.key, id_rsa, id_ed25519  -- real key material, must always fail
+#   docker-compose*.yml               -- omnifield allowlists these pending
+#                                        rotation; that is a debt to clear, not
+#                                        a pattern to copy into new repos
