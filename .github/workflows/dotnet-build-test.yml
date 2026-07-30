@@ -15,6 +15,23 @@ on:
         required: false
         type: string
         default: '["self-hosted","Windows","X64","seolith-local"]'
+      test-filter:
+        # dotnet test --filter expression. Empty means run everything.
+        #
+        # WHY THIS EXISTS. Tests that need Docker cannot run on the Windows
+        # runner services: they execute as NETWORK SERVICE, which cannot reach
+        # Docker Desktop's named pipe, so Testcontainers throws
+        # DockerUnavailableException and the whole suite fails. That single
+        # cause blocked 9 seolith-portal PRs on 2026-07-30.
+        #
+        # Excluding those tests is a REAL coverage loss, not a fix -- they must
+        # still be run locally before touching the code they cover, and the
+        # calling repo's CLAUDE.md should say so. The durable fix is to give a
+        # Docker-capable runner a .NET SDK (the WSL runners have Docker but no
+        # dotnet) and run integration tests there.
+        required: false
+        type: string
+        default: ""
     secrets:
       packages-read-token:
         # WHY THIS EXISTS. GITHUB_TOKEN is scoped to the calling repo, and
@@ -116,4 +133,15 @@ jobs:
 
       - name: Test
         timeout-minutes: 10
-        run: dotnet test "${{ steps.detect.outputs.path }}" --no-build --verbosity normal
+        shell: bash
+        env:
+          TEST_PATH: ${{ steps.detect.outputs.path }}
+          TEST_FILTER: ${{ inputs.test-filter }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TEST_FILTER" ]; then
+            echo "::notice::Running with --filter '$TEST_FILTER' -- excluded tests are NOT covered by CI"
+            dotnet test "$TEST_PATH" --no-build --verbosity normal --filter "$TEST_FILTER"
+          else
+            dotnet test "$TEST_PATH" --no-build --verbosity normal
+          fi
