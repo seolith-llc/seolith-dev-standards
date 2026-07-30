@@ -161,6 +161,11 @@ actions. Additions require a PR touching this table.
 - **2026-07-30** — Standard created. Estate baseline: 78 repos, 2,897 open
   Dependabot alerts, 7 self-hosted runners on 2 machines. Tiering model and
   first-customer revisit-triggers adopted.
+- **2026-07-30** — CTO decisions (interactive review): 10-repo archive slate
+  **approved and executed** (−576 alerts, −22 criticals); flagships designated
+  **seolith-omnifield, seolith-tax-manager, SCL + second-chance-leads**;
+  AI-platform choice deferred until after stabilization (handover docs stay
+  platform-neutral); hardening waves 0–4 approved as proposed.
 - **2026-07-30** — GitHub Packages is the only path for shared .NET code;
   sibling-checkout `ProjectReference` across repos is banned (root cause of the
   June–July red streak in ortho/sportmed/domain-suite).
