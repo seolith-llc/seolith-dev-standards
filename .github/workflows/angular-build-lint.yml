@@ -14,6 +14,25 @@ on:
       runs-on:
         required: false
         type: string
+        # WINDOWS, deliberately -- reverted 2026-07-30 the same day it was
+        # changed, because the change was made on a false premise.
+        #
+        # The previous comment here claimed "Chrome is installed on the WSL
+        # runners". It is not: there is no chrome/chromium binary in WSL at
+        # all, and CHROME_BIN is unset. That was verified on the WINDOWS side
+        # of the machine and wrongly asserted of the Linux side.
+        #
+        # The consequence is worse than a build failure. Repos whose Angular
+        # tests use the karma builder need a real browser; on Linux karma
+        # logs "No binary for Chrome browser" and executes ZERO specs, where
+        # the same suite reports passing tests on Windows. That is coverage
+        # disappearing quietly, which is exactly the failure mode this estate
+        # has been digging out of all week.
+        #
+        # A caller whose app uses the @angular/build:unit-test (vitest)
+        # builder needs no browser and CAN override this to the Linux set --
+        # seolith-ortho#14 proved that end to end. Making that the default is
+        # only safe once Chrome exists on the node-capable runners.
         default: '["self-hosted","Windows","X64","seolith-local"]'
 
 permissions:
@@ -96,6 +115,7 @@ jobs:
       # sites. A test script that FAILS is a failure, and must be, or the green
       # check is a lie. That distinction is the whole point of the rule.
       - name: Test
+        timeout-minutes: 15
         shell: pwsh
         working-directory: ${{ steps.detect.outputs.path }}
         run: |
