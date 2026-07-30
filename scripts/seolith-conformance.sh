@@ -33,7 +33,10 @@
 #
 # BASELINE (<repo>/.seolith-conformance-baseline)
 #   Normalised finding keys (RULE<TAB>file<TAB>message -- line numbers dropped,
-#   so unrelated edits that shift lines do not un-freeze old debt).
+#   so unrelated edits that shift lines do not un-freeze old debt). A key is
+#   written once PER OCCURRENCE: --new-only lets a key absorb only as many
+#   findings as were frozen, so adding a second :latest image to a file that
+#   already has one frozen finding is NEW and blocks.
 #
 # PORTABILITY
 #   bash + POSIX awk/grep/sed only. Runs under Git Bash on Windows and Linux.
@@ -50,6 +53,15 @@
 #       env assignment fed from assume-role-with-web-identity output is CORRECT
 #       and must not fire. Comments never count (seolith-crop-fight's only
 #       appleboy string is a comment explaining why SSH was abandoned).
+#       Checked on plain lines AND inside run: | block bodies -- the first cut
+#       of v2.0 only checked the non-block path and missed the M4 incident
+#       class itself (ceo-guide writing secrets.EC2_SSH_KEY to disk inside a
+#       run: | block), the mirror image of the v1.0 M6 run:-line bug.
+#   M5  an unpinned `npx <bin>` is suppressed when `npm ci` runs earlier in
+#       the same job AND the bin is a key in a committed package-lock.json:
+#       npm ci installs the exact lockfile tree, so the bin is exact-version
+#       pinned -- which is what M5 demands. The danger M5 targets is a package
+#       declared in no package.json anywhere in the estate (ecc-agentshield).
 #   M6  inspects run: single-line AND multi-line bodies (v1.0 skipped the run:
 #       line itself and missed `run: ${{ inputs.build-command }}`); flags
 #       caller-controlled runs-on (fromJSON(inputs...)); auto-suppresses
@@ -143,6 +155,7 @@ function istest(s) {
 }
 function m4check(s, n,  t, name) {
   # secrets.<NAME> refs only -- never bare env-var names (OIDC output is fine)
+  if (s ~ /^[ ]*#/) return   # comments never count (the crop-fight lesson)
   t = s
   while (match(t, /secrets\.[A-Za-z0-9_]+/)) {
     name = substr(t, RSTART + 8, RLENGTH - 8)
@@ -164,8 +177,15 @@ function m5check(s, n,  t, pkg) {
       }
     }
     pkg = t; sub(/[ ].*$/, "", pkg)
-    if (pkg != "" && pkg !~ /@[0-9]+\.[0-9]+\.[0-9]+/)
-      F("M5", n, "unpinned npx package [" pkg "] -- resolves to whatever npm calls latest at job start")
+    if (pkg != "" && pkg !~ /@[0-9]+\.[0-9]+\.[0-9]+/) {
+      if (sawnpmci)
+        # npm ci ran earlier in this job: defer to the shell, which suppresses
+        # the finding iff the bin is a key in a committed package-lock.json
+        # (then it resolves to the exact-version local install, not the registry)
+        printf "NPX\t%s\t%s\n", n, pkg
+      else
+        F("M5", n, "unpinned npx package [" pkg "] -- resolves to whatever npm calls latest at job start")
+    }
   }
   if (s ~ /(curl|wget)[^|]*\|[ ]*(sudo[ ]+)?(ba|z)?sh([ ]|$|-)/)
     F("M5", n, "remote installer piped to shell (curl|sh)")
@@ -189,6 +209,7 @@ function m6check(s, n,  t, expr, name) {
 function runline(s, n) {
   if (s ~ /^[ ]*#/) return    # commented-out shell lines never count (the
                               # crop-fight lesson: a comment is not a violation)
+  if (s ~ /(^|[ ;&|(])npm[ ]+ci([ ]|$)/) sawnpmci = 1
   if (s ~ /[Gg]itleaks/) sawgitleaks = 1
   m5check(s, n)
   m6check(s, n)
@@ -230,11 +251,19 @@ NR == FNR {
   line = $0; n = FNR; li = ind(line)
   if (inblock) {
     if (line ~ /^[ ]*$/) next
-    if (li > blocki) { runline(line, n); next }
+    if (li > blocki) { m4check(line, n); runline(line, n); next }
     inblock = 0; btest = 0; bhonor = 0; bsete = 0
   }
   if (line ~ /^[ ]*#/) next
   m4check(line, n)
+  # job boundaries: an `npm ci` seen earlier in the SAME job is what makes a
+  # later bare `npx <bin>` resolve to the local install (M5 suppression path)
+  if (line ~ /^jobs:/) { injobs = 1; jobind = 0 }
+  else if (injobs && li == 0 && line !~ /^[ ]*$/) injobs = 0
+  if (injobs && match(line, /^[ ]+[A-Za-z0-9_.-]+:/)) {
+    if (!jobind) jobind = li
+    if (li == jobind) sawnpmci = 0
+  }
   if (line ~ /^permissions:/) hasperm = 1
   if (line ~ /allow-no-tests:[ ]*.?true/) print "META\tALLOWNOTESTS"
   if (line ~ /^on:/ || onblock) {
@@ -311,6 +340,24 @@ END {
 # helpers
 # ---------------------------------------------------------------------------
 
+# is <bin> provided by a lockfile-pinned local dependency? `npm ci` installs
+# the exact tree from a committed package-lock.json, and lockfile v2/v3
+# entries list each package's bin names as keys ("cap" for @capacitor/cli,
+# "ng" for @angular/cli); a dependency whose name equals the bin appears as a
+# key too. Either way the bin is declared and exact-version pinned -- which is
+# what M5 demands. The danger M5 targets is a package declared in no
+# package.json anywhere in the estate.
+npx_bin_is_pinned_local() {
+  local bin="$1" lf
+  case "$bin" in *[!A-Za-z0-9_.-]*|"") return 1 ;; esac
+  while IFS= read -r lf; do
+    [ -f "$lf" ] || continue
+    if grep -qE "\"$bin\"[ ]*:" "$lf" 2>/dev/null; then return 0; fi
+  done < <(git ls-files -- '*package-lock.json' 2>/dev/null \
+           | grep -vE '(^|/)(node_modules|vendor|third_party|openclaw|_actions|\.runner-data)/' | head -25)
+  return 1
+}
+
 # does any tracked package.json declare a real test script?
 repo_has_pkg_test() {
   local p
@@ -355,6 +402,11 @@ scan_repo() {
     while IFS=$'\t' read -r kind a b c; do
       case "$kind" in
         F)    printf '%s\t%s\t%s\t%s\n' "$a" "$f" "$b" "$c" ;;
+        NPX)  # unpinned npx after an npm ci in the same job: only a finding
+              # when the bin is NOT a committed-lockfile-pinned local dep
+          if ! npx_bin_is_pinned_local "$b"; then
+            printf 'M5\t%s\t%s\tunpinned npx package [%s] -- resolves to whatever npm calls latest at job start\n' "$f" "$a" "$b"
+          fi ;;
         META)
           case "$a" in
             NOPERM)       printf 'M3\t%s\t1\tno top-level permissions: block -- one org toggle away from silent write access\n' "$f" ;;
@@ -421,10 +473,17 @@ scan_repo() {
       -- ':!.gitleaks.toml' ':!openclaw/' ':!vendor/' ':!third_party/' ':!node_modules/' 2>/dev/null \
   | awk -F: '
       {
+        # awk EREs have no backreferences, so a same-char run must be counted
+        # by hand: 8+ consecutive identical chars marks a doc placeholder
         tok = $3
         ph = 0
-        for (c = 1; c <= length(tok) - 7; c++)
-          if (substr(tok, c, 8) ~ /^(.)\1\1\1\1\1\1\1$/) { ph = 1; break }
+        run = 1
+        for (c = 2; c <= length(tok); c++) {
+          if (substr(tok, c, 1) == substr(tok, c - 1, 1)) {
+            run++
+            if (run >= 8) { ph = 1; break }
+          } else run = 1
+        }
         if (tolower(tok) ~ /xxxxxx|123456789/) ph = 1
         if (!ph && !seen[$1]++)
           printf "M8\t%s\t%s\treal-shaped GitHub PAT committed in HEAD -- revoke it; per-repo deletion is insufficient\n", $1, $2
@@ -521,7 +580,11 @@ process_repo() {
   local newbase="$WORK/newbase.$$"
   : > "$newbase"
 
-  local rule file line msg waived
+  local rule file line msg waived key avail used
+  # each baseline key absorbs only as many findings as occurrences frozen in
+  # it -- a key with no count would let a NEW second :latest in an already-
+  # baselined file merge silently
+  local -A baseused=()
   while IFS=$'\t' read -r rule file line msg; do
     [ -n "$rule" ] || continue
     # waiver match: rule + (file glob or file:line glob)
@@ -537,7 +600,11 @@ process_repo() {
     fi
     printf '%s\t%s\t%s\n' "$rule" "$file" "$msg" >> "$newbase"
     if [ "$NEW_ONLY" = 1 ]; then
-      if grep -qxF "$(printf '%s\t%s\t%s' "$rule" "$file" "$msg")" "$basekeys" 2>/dev/null; then
+      key="$(printf '%s\t%s\t%s' "$rule" "$file" "$msg")"
+      avail="$(grep -cxF "$key" "$basekeys" 2>/dev/null || true)"
+      used="${baseused[$key]:-0}"
+      if [ "${avail:-0}" -gt "$used" ]; then
+        baseused[$key]=$((used + 1))
         BASELINED_TOTAL=$((BASELINED_TOTAL + 1))
         continue
       fi
@@ -548,8 +615,9 @@ process_repo() {
   if [ "$WRITE_BASELINE" = 1 ]; then
     {
       printf '# seolith-conformance baseline -- frozen %s. This freezes today%s debt; it does not forgive it.\n' "$TODAY" "'s"
-      printf '# key format: RULE<TAB>file<TAB>message (line numbers dropped so edits that shift lines do not un-freeze debt)\n'
-      sort -u "$newbase"
+      printf '# key format: RULE<TAB>file<TAB>message (line numbers dropped so edits that shift lines do not un-freeze debt;\n'
+      printf '# one line per occurrence, so a second identical violation in the same file is NEW and blocks)\n'
+      sort "$newbase"
     } > "$bf"
   fi
   rm -f "$active" "$expired" "$basekeys" "$newbase" "$WORK/wparse.$$" 2>/dev/null || true
