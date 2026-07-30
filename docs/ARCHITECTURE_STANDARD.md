@@ -60,10 +60,26 @@ example of our standards is either fixed or archived — never left ambiguous.**
    only from the GitHub feed via `packageSourceMapping`; everything else only
    from the public registry. (And: **no `--` inside XML comments** — NuGet
    rejects the whole config file.)
-5. **Workflow permissions.** Top-level `permissions: contents: read`; jobs
+5. **A shared library must not suppress a diagnostic its consumers cannot.**
+   `Seolith.Platform.Mail` carried `<NoWarn>$(NoWarn);NU1902</NoWarn>`
+   ("suppress until upstream fix") for a vulnerable transitive MailKit.
+   Consumers inherit the package but **not** the suppression, so the library
+   published green for weeks while seolith-ortho and seolith-sportmed failed
+   restore with NU1902-as-error. Suppression at the shared layer converts a
+   shared-code advantage into a shared-risk one, and hides it behind the
+   publisher's own green build. Fix the dependency or raise the version floor;
+   if a suppression is genuinely unavoidable, it belongs in a dated
+   `.seolith-waivers` entry, not an invisible `NoWarn`.
+6. **Machine-read prose is code.** Two defects in this engagement came from
+   explanatory text being parsed: a `--` inside an XML comment made NuGet
+   reject an entire `nuget.config`, and a commit body containing the literal
+   skip-ci directive caused the commit that fixed skipped builds to skip its
+   own. Comments, commit messages and config prose get the same
+   verify-the-artifact treatment as code.
+7. **Workflow permissions.** Top-level `permissions: contents: read`; jobs
    escalate individually (`packages: read/write`) and reusable-workflow callers
    must grant explicitly. `pull_request_target` is banned without CTO sign-off.
-6. **CI runs on our hardware.** Self-hosted runners mean workflow code executes
+8. **CI runs on our hardware.** Self-hosted runners mean workflow code executes
    on SEOlith machines: fork PRs never trigger runners, and no repo grants
    outside collaborators write access without moving its CI off the shared pool.
 
