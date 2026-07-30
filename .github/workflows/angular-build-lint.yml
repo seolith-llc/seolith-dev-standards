@@ -14,7 +14,19 @@ on:
       runs-on:
         required: false
         type: string
-        default: '["self-hosted","Windows","X64","seolith-local"]'
+        # Linux by default since 2026-07-30, same rationale as the node lanes:
+        # 3 Windows runners were the queue for the whole estate while 3 WSL
+        # runners idled. Proven green end-to-end in seolith-ortho#14, where the
+        # Angular job ran on LKS-LLC-DESKTOP-WSL while that PR's .NET job ran
+        # on Windows in parallel.
+        #
+        # 'node-capable', NOT 'linux-build': EWA-NUC-KRK-LINUX carries
+        # linux-build but is a WSL 1 host whose Node install does not resolve.
+        #
+        # Repos whose Angular tests need a real browser (karma) still work --
+        # Chrome is installed on the WSL runners -- but a caller can override
+        # this input if it needs Windows.
+        default: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
 
 permissions:
   contents: read
