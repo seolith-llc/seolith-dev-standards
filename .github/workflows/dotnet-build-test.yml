@@ -15,6 +15,18 @@ on:
         required: false
         type: string
         default: '["self-hosted","Windows","X64","seolith-local"]'
+    secrets:
+      packages-read-token:
+        # WHY THIS EXISTS. GITHUB_TOKEN is scoped to the calling repo, and
+        # GitHub's NuGet registry inherits the PUBLISHING repo's permissions --
+        # so a consumer repo's token gets 403 on Seolith.Platform.* (proven:
+        # seolith-ortho run 30509431979, 2026-07-30). There is no OIDC path to
+        # the NuGet feed. The accepted mechanism is a read:packages-only
+        # classic PAT on the machine account, stored as the org secret
+        # PACKAGES_READ_TOKEN with 'selected' visibility (consumer repos only).
+        # Optional: repos without the secret fall back to GITHUB_TOKEN, which
+        # still works for same-repo packages.
+        required: false
 
 permissions:
   contents: read
@@ -82,6 +94,11 @@ jobs:
       # do not consume the libraries are unaffected.
       - name: Authenticate GitHub Packages
         shell: bash
+        env:
+          # Bound via env, never interpolated into the script body. Fallback
+          # chain: cross-repo PAT if the caller passes one, else GITHUB_TOKEN.
+          NUGET_USER: ${{ github.actor }}
+          NUGET_PASSWORD: ${{ secrets.packages-read-token || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           CFG=$(find . -maxdepth 3 -iname "nuget.config" -not -path "*/node_modules/*" | head -1)
@@ -89,7 +106,7 @@ jobs:
             echo "no GitHub Packages source declared; skipping"; exit 0
           fi
           echo "configuring credentials for the github source in $CFG"
-          dotnet nuget update source github             --username "${{ github.actor }}"             --password "${{ secrets.GITHUB_TOKEN }}"             --store-password-in-clear-text             --configfile "$CFG" 2>/dev/null           || dotnet nuget add source "https://nuget.pkg.github.com/seolith-llc/index.json"             --name github             --username "${{ github.actor }}"             --password "${{ secrets.GITHUB_TOKEN }}"             --store-password-in-clear-text             --configfile "$CFG"
+          dotnet nuget update source github               --username "$NUGET_USER" --password "$NUGET_PASSWORD"               --store-password-in-clear-text --configfile "$CFG" 2>/dev/null             || dotnet nuget add source "https://nuget.pkg.github.com/seolith-llc/index.json"               --name github               --username "$NUGET_USER" --password "$NUGET_PASSWORD"               --store-password-in-clear-text --configfile "$CFG"
 
       - name: Restore dependencies
         run: dotnet restore "${{ steps.detect.outputs.path }}"
