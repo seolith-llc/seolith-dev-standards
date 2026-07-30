@@ -125,6 +125,7 @@ jobs:
       # sites. A test script that FAILS is a failure, and must be, or the green
       # check is a lie. That distinction is the whole point of the rule.
       - name: Test
+        timeout-minutes: 15
         shell: pwsh
         working-directory: ${{ steps.detect.outputs.path }}
         run: |
