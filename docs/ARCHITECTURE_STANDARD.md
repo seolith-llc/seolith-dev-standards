@@ -5,6 +5,19 @@ The decision framework above the operating docs. Where [CI_CD_STANDARD](CI_CD_ST
 [OBSERVABILITY_STANDARD](OBSERVABILITY_STANDARD.md) say *how*, this document says
 *what gets built, kept, split, merged, hardened, or archived — and why*.
 
+**Relationship to the SEOlith Engineering Standard v2.0**
+(`seolith-ops-control/docs/estate-engineering-standard.md`): that document owns
+the per-repo conformance rules (M1–M10, SWEEP, HOST, SHOULD) with their
+incident histories; this one owns estate-level decisions (tiering, topology,
+cost, AI-enablement). Where they touch, **v2.0's rules win** — in particular
+its S20 reasoning that blanket `uses:` SHA-pinning is a SHOULD, scoped to
+non-`actions/`-namespace publishers if ever promoted. Known defect, recorded
+here until fixed: v2.0 declares its home as `seolith-dev-standards/STANDARD.md`
+enforced by `scripts/seolith-conformance.sh`, and **neither file exists in any
+repo** — the enforcement layer was specified (465-finding baseline measured
+2026-07-28) but never committed. Building it is a standing hardening
+deliverable.
+
 Effective 2026-07-30. Owner: CTO. Changes via PR to this file; every material
 architecture decision gets a dated entry in the Decision Log at the bottom.
 
@@ -38,10 +51,11 @@ example of our standards is either fixed or archived — never left ambiguous.**
    app-or-game/tool: no criticals older than 90 days. experiment: triaged at
    graduation, not before. (Estate baseline on 2026-07-30: **2,897 open
    alerts** — the SLO applies to the burn-down, not as an instant bar.)
-3. **Supply chain.** Third-party GitHub Actions pinned to commit SHAs.
-   Third-party tools executed in CI (e.g. `ecc-agentshield`) pinned to exact
-   versions and listed in the Supply-Chain Register (§8). `npx --yes` of an
-   unpinned package in a workflow is a defect.
+3. **Supply chain.** Third-party tools executed in CI (e.g. `ecc-agentshield`)
+   pinned to exact versions and listed in the Supply-Chain Register (§8);
+   `npx --yes` of an unpinned package in a workflow is a defect (v2.0 M5).
+   `uses:` SHA-pinning follows v2.0 S20: SHOULD, prioritized for
+   non-`actions/`-namespace publishers — not a blanket merge gate.
 4. **Dependency confusion.** Private packages (`Seolith.Platform.*`) resolve
    only from the GitHub feed via `packageSourceMapping`; everything else only
    from the public registry. (And: **no `--` inside XML comments** — NuGet
