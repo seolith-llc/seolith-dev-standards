@@ -22,7 +22,17 @@ on:
       runs-on:
         required: false
         type: string
-        default: '["self-hosted","Windows","X64","seolith-local"]'
+        # Linux by default since 2026-07-30. The estate's 3 Windows runners
+        # were the queue for every build while 3 WSL runners idled --
+        # effective capacity was 3 of 7. This lane is pure Node and has no
+        # Windows dependency; proven green on Linux in seolith-hindi-buddy#14
+        # (node-build) and seolith-box-breathing#4 (node-pwa-build).
+        #
+        # 'node-capable', NOT 'linux-build': EWA-NUC-KRK-LINUX carries
+        # linux-build but is a WSL 1 host whose Node install does not resolve,
+        # so every npx there dies instantly. Callers needing Windows can still
+        # override this input.
+        default: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
       audit-level:
         required: false
         type: string
@@ -41,7 +51,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Run AgentShield Security Scan
-        run: npx --yes ecc-agentshield@1.4.0 scan --path "$env:GITHUB_WORKSPACE" --gate
+        run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -107,6 +117,7 @@ jobs:
       # sites. A test script that FAILS is a failure, and must be, or the green
       # check is a lie. That distinction is the whole point of the rule.
       - name: Test
+        timeout-minutes: 15
         shell: pwsh
         working-directory: ${{ inputs.project-path }}
         run: |
