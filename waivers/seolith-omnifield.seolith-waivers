@@ -1,0 +1,4 @@
+# SEOlith Engineering Standard v2.0 -- documented exceptions (STANDARD.md exceptions table).
+# RULE<TAB>path[:line] glob<TAB>expiry<TAB>reason
+M6	.github/workflows/ci-cd.yml:363	2027-06-30	github.ref_name in a pwsh body: the job is gated by if: to two literal branch names, so the value cannot be attacker-controlled
+M7	docker-compose*	2026-12-31	S3-tarball image delivery instead of ECR: verified working in production for paying clients 2026-07-28; changing it risks revenue for consistency's sake
