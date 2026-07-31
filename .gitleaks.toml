@@ -1,0 +1,84 @@
+# Baseline gitleaks config for seolith-llc repositories.
+#
+# Copy to the repo root as `.gitleaks.toml`.
+#
+# TUNED 2026-07-29 after the estate rollout. The first version used the stock
+# ruleset unmodified and produced 39 findings in one-prompt-lab, of which 30
+# were `generic-api-key` -- a rule that fires on any high-entropy string near a
+# key-ish word. The genuine findings in that repo were 2 private keys and 3
+# GitHub PATs, and they were buried under the noise.
+#
+# A scanner whose output is mostly noise gets ignored. That failure mode matters
+# more than the false positives themselves.
+#
+# The allowlist below suppresses the places high-entropy strings legitimately
+# live. It does NOT weaken the high-confidence rules: private-key, github-pat,
+# github-oauth, aws-access-token and friends match a specific literal format
+# rather than guessing from entropy, so they still fire everywhere -- including
+# inside the paths excluded below.
+
+title = "seolith gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Suppress where high-entropy strings legitimately live"
+
+# --- Paths -----------------------------------------------------------------
+# The [\\/] class matches BOTH separators deliberately: this estate runs Linux
+# and Windows self-hosted runners, and gitleaks reports paths with the host OS
+# separator. A '/'-only pattern silently passes on the Windows pool.
+paths = [
+  '''\.gitleaks\.toml''',
+
+  # Lockfiles: integrity hashes are high-entropy by design and are not secrets.
+  # This was the single largest source of generic-api-key noise.
+  '''(^|[\\/])package-lock\.json$''',
+  '''(^|[\\/])pnpm-lock\.yaml$''',
+  '''(^|[\\/])yarn\.lock$''',
+  '''(^|[\\/])packages\.lock\.json$''',
+  '''(^|[\\/])Cargo\.lock$''',
+  '''(^|[\\/])poetry\.lock$''',
+  '''(^|[\\/])composer\.lock$''',
+  '''(^|[\\/])Gemfile\.lock$''',
+
+  # Build output and vendored code: minified bundles and sourcemaps are dense
+  # base64 and trip entropy rules constantly. None of it is source of truth.
+  '''(^|[\\/])(dist|build|out|coverage|node_modules|vendor|\.next|\.angular)[\\/]''',
+  '''\.min\.(js|css)$''',
+  '''\.map$''',
+  '''(^|[\\/])obj[\\/]''',
+  '''(^|[\\/])bin[\\/](Debug|Release)[\\/]''',
+
+  # Fixtures and examples: deliberately fake credentials.
+  '''(^|[\\/])\.env\.(example|sample|template)$''',
+  '''(^|[\\/])appsettings\.(Example|Sample|Template)\.json$''',
+  '''[\\/](__fixtures__|__snapshots__|testdata|fixtures)[\\/]''',
+  '''\.snap$''',
+
+  # Binary-ish assets that occasionally trip entropy checks.
+  '''\.(png|jpg|jpeg|gif|ico|woff2?|ttf|eot|pdf|zip|gz|tar)$''',
+]
+
+# --- Literal placeholders ---------------------------------------------------
+# Obviously-fake values that must never trip the scanner anywhere.
+regexes = [
+  '''CHANGEME''',
+  '''REPLACE_ME''',
+  '''PLACEHOLDER-REPLACE-VIA-CLI''',
+  '''your-secret-here''',
+  '''xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx''',
+  '''00000000-0000-0000-0000-000000000000''',
+  '''(?i)example[_-]?(key|token|secret)''',
+]
+
+# --- Deliberately NOT allowlisted ------------------------------------------
+#   *.pem, *.key, id_rsa, id_ed25519   real key material, must always fail
+#   docker-compose*.yml                 seolith-omnifield allowlists these
+#                                       pending rotation; that is a debt to
+#                                       clear, not a pattern to copy
+#
+# If a genuine false positive survives this list, add ONE narrow entry with a
+# comment saying why. The allowlist is a debt ledger, not a settings file -- one
+# that only ever grows is a scanner being switched off slowly.
