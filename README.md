@@ -7,6 +7,8 @@ Centralized hub for ecosystem standards: DevContainers, CI/CD templates, Linting
 
 ## Operating Docs
 
+- [Architecture standard](docs/ARCHITECTURE_STANDARD.md) — tiering, gates, split/consolidate criteria, decision log
+- [AI agent handover](docs/AI_AGENT_HANDOVER.md) — when a repo is agent-ready, CLAUDE.md schema, agent permission model
 - [Branch hygiene](docs/BRANCH_HYGIENE.md)
 - [CI/CD standard](docs/CI_CD_STANDARD.md)
 - [Common services standard](docs/COMMON_SERVICES_STANDARD.md)
