@@ -14,25 +14,40 @@ on:
       runs-on:
         required: false
         type: string
-        # WINDOWS, deliberately -- reverted 2026-07-30 the same day it was
-        # changed, because the change was made on a false premise.
+        # WINDOWS by default -- but the Linux blocker is now CLEARED.
         #
-        # The previous comment here claimed "Chrome is installed on the WSL
-        # runners". It is not: there is no chrome/chromium binary in WSL at
-        # all, and CHROME_BIN is unset. That was verified on the WINDOWS side
-        # of the machine and wrongly asserted of the Linux side.
+        # HISTORY, because this comment has been wrong before. It once claimed
+        # "Chrome is installed on the WSL runners". That was false: it had been
+        # verified on the Windows side of the machine and wrongly asserted of
+        # the Linux side. Repos on the karma builder need a real browser, and
+        # on the WSL runners karma logged
+        #     ERROR [launcher]: No binary for Chrome browser on your platform.
+        # then executed ZERO specs, while `ng test` sat in watch mode until the
+        # 25-minute job bound killed it. The same suite passed on Windows.
+        # Evidence: clinical-trial-ai-agent#26, runs 30586122448 / 30586122482.
+        # Two costs, not one -- coverage disappearing quietly, AND a scarce
+        # node-capable slot burned for 25 minutes instead of failing fast.
         #
-        # The consequence is worse than a build failure. Repos whose Angular
-        # tests use the karma builder need a real browser; on Linux karma
-        # logs "No binary for Chrome browser" and executes ZERO specs, where
-        # the same suite reports passing tests on Windows. That is coverage
-        # disappearing quietly, which is exactly the failure mode this estate
-        # has been digging out of all week.
+        # 2026-07-31, verified rather than assumed: Google Chrome 151.0.7922.71
+        # is installed on the WSL Ubuntu host that backs all three node-capable
+        # runners (LKS-LLC-DESKTOP-WSL, -WSL-1, -WSL-2 are three runner
+        # directories inside ONE Ubuntu rootfs, so one install serves all
+        # three), and CHROME_BIN=/usr/bin/google-chrome-stable is exported from
+        # each runner's .env -- the same mechanism that already carries
+        # DOTNET_INSTALL_DIR. Headless launch verified with the sandbox intact,
+        # so no --no-sandbox workaround is needed in any caller's karma.conf.
         #
-        # A caller whose app uses the @angular/build:unit-test (vitest)
-        # builder needs no browser and CAN override this to the Linux set --
-        # seolith-ortho#14 proved that end to end. Making that the default is
-        # only safe once Chrome exists on the node-capable runners.
+        # Belt and braces: the Test step below no longer trusts this comment.
+        # It preflights for a real browser whenever the karma builder is in
+        # play and fails in seconds with an actionable message if one is
+        # missing, so a regression here can never again masquerade as a pass.
+        #
+        # The default stays Windows only because flipping it changes behaviour
+        # for every caller at once, which is a separate and deliberate change.
+        # Callers may now override to the Linux set:
+        #     runs-on: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
+        # Use node-capable, never bare linux-build: EWA-NUC-KRK-LINUX is a
+        # WSL 1 host and cannot run Node at all.
         default: '["self-hosted","Windows","X64","seolith-local"]'
 
 permissions:
@@ -114,22 +129,100 @@ jobs:
       # Absence of a `test` script is not a failure -- many callers are static
       # sites. A test script that FAILS is a failure, and must be, or the green
       # check is a lie. That distinction is the whole point of the rule.
+      #
+      # A missing browser must ERROR IN SECONDS, not merely be bounded.
+      #
+      # #55 added the timeout-minutes below, which stops a hung suite eating
+      # the whole 25-minute job. That is the right backstop but it is not a
+      # diagnosis: `npm test` runs `ng test`, which starts karma in WATCH mode
+      # and never exits, so a runner with no Chrome still burned 15 minutes of
+      # a scarce node-capable slot and then reported *cancelled* -- which reads
+      # like a flake rather than naming the real cause. Two faster bounds now
+      # sit in front of it: a browser preflight that fails in seconds, and
+      # --watch=false so a single run can actually terminate on its own.
+      #
+      # The timeout stays at #55's 15 minutes deliberately. It is now a pure
+      # backstop for genuinely slow suites, so there is no reason to tighten
+      # it and risk failing a large but healthy test run.
       - name: Test
         timeout-minutes: 15
         shell: pwsh
         working-directory: ${{ steps.detect.outputs.path }}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if (-not $pkg.scripts.test) {
+          $testScript = $pkg.scripts.test
+          if (-not $testScript) {
             Write-Host "No 'test' script in package.json; nothing to run."
             exit 0
           }
-          if ($pkg.scripts.test -match 'no test specified') {
+          if ($testScript -match 'no test specified') {
             Write-Host "package.json has the npm-init placeholder test script; skipping."
             exit 0
           }
-          Write-Host "Running: npm test"
-          npm test --if-present
+
+          # -- Browser preflight, karma only ---------------------------------
+          # karma drives a REAL browser. With none it prints "No binary for
+          # Chrome browser on your platform" and then runs ZERO specs, which is
+          # a silent coverage hole, so prove a browser exists BEFORE ng starts.
+          # The vitest builder (@angular/build:unit-test) needs no browser and
+          # is deliberately not gated here.
+          $usesKarma = $false
+          if (Test-Path 'angular.json') {
+            $ng = Get-Content 'angular.json' -Raw | ConvertFrom-Json
+            if ($ng.projects) {
+              foreach ($proj in $ng.projects.PSObject.Properties) {
+                foreach ($holder in @($proj.Value.architect, $proj.Value.targets)) {
+                  if ($holder -and $holder.test -and $holder.test.builder -match 'karma') {
+                    $usesKarma = $true
+                  }
+                }
+              }
+            }
+          }
+          foreach ($conf in @('karma.conf.js', 'karma.conf.cjs', 'karma.conf.ts')) {
+            if (Test-Path $conf) { $usesKarma = $true }
+          }
+
+          if ($usesKarma) {
+            $chrome = $null
+            foreach ($candidate in @($env:CHROME_BIN, $env:CHROME_PATH)) {
+              if ($candidate -and (Test-Path $candidate)) { $chrome = $candidate; break }
+            }
+            if (-not $chrome) {
+              foreach ($name in @('google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser', 'chrome')) {
+                $cmd = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($cmd) { $chrome = $cmd.Source; break }
+              }
+            }
+            if (-not $chrome -and $IsWindows) {
+              # Windows Chrome is not on PATH; karma-chrome-launcher finds it by
+              # well-known path, so the preflight has to look the same places.
+              foreach ($p in @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+                               "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+                               "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe")) {
+                if ($p -and (Test-Path $p)) { $chrome = $p; break }
+              }
+            }
+            if (-not $chrome) {
+              Write-Host "::error::This project uses the karma test builder, which needs a real browser, and none was found on runner '$env:RUNNER_NAME'. karma would capture no browser and silently execute ZERO specs. Install Chrome/Chromium on this runner, or export CHROME_BIN from its .env."
+              exit 1
+            }
+            $env:CHROME_BIN = $chrome
+            Write-Host "karma builder detected; using browser: $chrome"
+          }
+
+          # -- Never run a watch server under CI ------------------------------
+          # `ng test` defaults to a watcher that never exits. Force a single
+          # run; both the karma and the unit-test (vitest) builders take
+          # --watch. Only appended for `ng test`, since an arbitrary test
+          # script (jest, node --test) may reject the flag.
+          $extraArgs = @()
+          if ($testScript -match '(^|\s|&&|;)ng\s+test(\s|$)') {
+            $extraArgs = @('--', '--watch=false')
+          }
+
+          Write-Host "Running: npm test $($extraArgs -join ' ')"
+          npm test --if-present @extraArgs
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Tests failed (exit $LASTEXITCODE)."
             exit $LASTEXITCODE
