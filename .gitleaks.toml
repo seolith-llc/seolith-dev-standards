@@ -11,24 +11,33 @@
 # A scanner whose output is mostly noise gets ignored. That failure mode matters
 # more than the false positives themselves.
 #
-# The allowlist below suppresses the places high-entropy strings legitimately
-# live. It does NOT weaken the high-confidence rules: private-key, github-pat,
+# The allowlists below suppress the places high-entropy strings legitimately
+# live. They do NOT weaken the high-confidence rules: private-key, github-pat,
 # github-oauth, aws-access-token and friends match a specific literal format
 # rather than guessing from entropy, so they still fire everywhere -- including
 # inside the paths excluded below.
+#
+# SYNTAX, 2026-08-01: this file uses the [[allowlists]] ARRAY form, not the
+# deprecated singular [allowlist]. gitleaks 8.30.1 refuses to load a config that
+# mixes them ("[allowlist] is deprecated, it cannot be used alongside
+# [[allowlists]]"), so the singular form made this file un-extendable: any repo
+# needing one scoped exception had to rewrite the whole thing or give up. Adding
+# a repo-specific entry is now just appending another [[allowlists]] block.
 
 title = "seolith gitleaks config"
 
 [extend]
 useDefault = true
 
-[allowlist]
-description = "Suppress where high-entropy strings legitimately live"
-
-# --- Paths -----------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Paths where high-entropy strings legitimately live.
+#
 # The [\\/] class matches BOTH separators deliberately: this estate runs Linux
 # and Windows self-hosted runners, and gitleaks reports paths with the host OS
 # separator. A '/'-only pattern silently passes on the Windows pool.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Lockfiles, build output, fixtures and binary assets"
 paths = [
   '''\.gitleaks\.toml''',
 
@@ -45,6 +54,9 @@ paths = [
 
   # Build output and vendored code: minified bundles and sourcemaps are dense
   # base64 and trip entropy rules constantly. None of it is source of truth.
+  # NOTE: excluding dist/ from the SCAN is not permission to COMMIT dist/ --
+  # build output belongs in .gitignore. seolith-debug-dojo had 17 tracked files
+  # under dist/, which is how its Firebase key was found twice.
   '''(^|[\\/])(dist|build|out|coverage|node_modules|vendor|\.next|\.angular)[\\/]''',
   '''\.min\.(js|css)$''',
   '''\.map$''',
@@ -61,8 +73,11 @@ paths = [
   '''\.(png|jpg|jpeg|gif|ico|woff2?|ttf|eot|pdf|zip|gz|tar)$''',
 ]
 
-# --- Literal placeholders ---------------------------------------------------
-# Obviously-fake values that must never trip the scanner anywhere.
+# ---------------------------------------------------------------------------
+# Literal placeholders: obviously-fake values that must never trip the scanner.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Obvious placeholder literals"
 regexes = [
   '''CHANGEME''',
   '''REPLACE_ME''',
@@ -73,12 +88,31 @@ regexes = [
   '''(?i)example[_-]?(key|token|secret)''',
 ]
 
-# --- Deliberately NOT allowlisted ------------------------------------------
+# ---------------------------------------------------------------------------
+# HOW TO ADD A REPO-SPECIFIC EXCEPTION
+#
+# Append a new [[allowlists]] block. Scope it as tightly as the evidence allows,
+# and say WHY in a comment. Useful knobs, all verified against 8.30.1:
+#
+#   targetRules = ["generic-api-key"]   apply to one rule only
+#   regexTarget = "line"                match the whole LINE, not the extracted
+#                                       secret value. Without this, a regex
+#                                       describing surrounding text silently
+#                                       matches nothing -- a mistake that cost
+#                                       a wasted PR on seolith-tax-manager.
+#   paths = ['''...''']                 confine it to one file or directory
+#
+# Then PROVE the exception is narrow: inject a realistic high-entropy fake
+# secret into the same file, confirm it is STILL detected, and restore the file.
+# Do NOT use AKIAIOSFODNN7EXAMPLE for that test -- it is AWS's documentation key
+# and gitleaks ignores it by design, so it proves nothing.
+#
+# Deliberately NOT allowlisted:
 #   *.pem, *.key, id_rsa, id_ed25519   real key material, must always fail
 #   docker-compose*.yml                 seolith-omnifield allowlists these
 #                                       pending rotation; that is a debt to
 #                                       clear, not a pattern to copy
 #
-# If a genuine false positive survives this list, add ONE narrow entry with a
-# comment saying why. The allowlist is a debt ledger, not a settings file -- one
-# that only ever grows is a scanner being switched off slowly.
+# The allowlist is a debt ledger, not a settings file -- one that only ever
+# grows is a scanner being switched off slowly.
+# ---------------------------------------------------------------------------
