@@ -108,11 +108,37 @@ jobs:
           fi
         working-directory: ${{ steps.detect.outputs.path }}
 
+      # This step was `continue-on-error: true` until 2026-08-04, so lint could
+      # not fail a build. Removing that flag alone would have turned 18 of the
+      # 27 consumers red at once -- and 17 of those NOT because of lint errors,
+      # but because they have no `lint` script at all, so `npm run lint` exits
+      # with "Missing script: lint". The flag was mostly hiding a missing
+      # script, not failing code. Measured by running lint in every consumer.
+      #
+      # So the step is guarded first, matching what node-build.yml already does
+      # for a missing build script: no lint script means skip and SAY so, as a
+      # warning annotation, so it reads as a gap to fill rather than a pass.
+      #
+      # With the guard in place the flag is gone, so a repo that HAS a lint
+      # script and fails it now blocks. On measurement that is exactly one
+      # repo -- lks-ads -- whose real lint errors were being swallowed.
+      #
+      # Do NOT restore continue-on-error, and do not try to check whether it is
+      # safe by reading step conclusions: the jobs API reports a
+      # continue-on-error step as conclusion=success even when the command
+      # exited non-zero. That method was tried here and returned a clean bill
+      # of health that was entirely false. Measure by running the command.
       - name: Lint
         timeout-minutes: 5
-        run: npm run lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! node -e "process.exit(require('./package.json').scripts?.lint ? 0 : 1)"; then
+            echo "::warning::No 'lint' script in package.json -- skipping lint. This repo is not linted in CI."
+            exit 0
+          fi
+          npm run lint
         working-directory: ${{ steps.detect.outputs.path }}
-        continue-on-error: true
 
       - name: Build
         timeout-minutes: 10
