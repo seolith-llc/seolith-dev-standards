@@ -11,6 +11,42 @@ on:
         required: false
         type: string
         default: "."
+      # DEFAULTS TO "critical", NOT "high" -- deliberately, and temporarily.
+      #
+      # This lane had no audit step at all until 2026-08-05, so its consumers
+      # have never had a dependency gate. Measured before adding one, against
+      # each repo's COMMITTED lockfile in the path this lane actually audits:
+      # at --audit-level=high, 24 of 26 active consumers fail. That includes
+      # every flagship (SCL, second-chance-leads, clinical-trial-ai-agent,
+      # SEOlithAI4PCI), with counts from 1 to 37.
+      #
+      # Shipping that as blocking would red the estate in one push. Shipping
+      # it non-blocking would recreate the exact decorative gate removed from
+      # this file and node-build.yml the day before.
+      #
+      # So: a REAL gate, honouring its exit code, calibrated where it changes
+      # nothing today. There are currently ZERO criticals across all 26
+      # consumers, so nothing breaks on merge, and any NEW critical is caught
+      # immediately. This is not the same as continue-on-error: the result is
+      # honoured, and the threshold is declared in the caller where it is
+      # visible and reviewable.
+      #
+      # The backlog behind the "high" threshold splits three ways:
+      #   npm audit fix alone      clears some outright (SCL 1 -> 0)
+      #   overrides                undici, postcss, immutable, ip-address
+      #   an Angular upgrade       the @angular/* advisory cluster -- i18n XSS
+      #                            and XSRF token leakage via protocol-relative
+      #                            URLs. 12 of second-chance-leads' 16 residual
+      #                            highs are this. It is the dominant root
+      #                            cause and it is a programme, not a bump.
+      #
+      # RATCHET, don't relax: as a repo is cleared, set audit-level: 'high' in
+      # ITS caller. Do not lower this shared default, and never add
+      # continue-on-error to the step below.
+      audit-level:
+        required: false
+        type: string
+        default: "critical"
       runs-on:
         required: false
         type: string
@@ -106,6 +142,22 @@ jobs:
             echo "No package-lock.json found; using npm install --legacy-peer-deps."
             npm install --legacy-peer-deps
           fi
+        working-directory: ${{ steps.detect.outputs.path }}
+
+      # ADDED 2026-08-05. This lane audited NOTHING before today, while
+      # node-build.yml at least had an audit step (albeit a decorative one
+      # until #62). So the 26 active consumers of this lane had no dependency
+      # gate whatsoever -- an absent one, not a disabled one, which is why it
+      # went unnoticed longer.
+      #
+      # Found via lks-ads, which carries 3 HIGH advisories (fast-uri, postcss,
+      # undici) that no CI run in this estate has ever reported.
+      #
+      # See the audit-level input above for why the default is "critical" and
+      # how to ratchet a cleared repo up to "high". NO continue-on-error here,
+      # deliberately and permanently.
+      - name: Audit dependencies
+        run: npm audit --audit-level=${{ inputs.audit-level }}
         working-directory: ${{ steps.detect.outputs.path }}
 
       # This step was `continue-on-error: true` until 2026-08-04, so lint could
