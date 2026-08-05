@@ -84,10 +84,26 @@ jobs:
           Invoke-Expression $install
         working-directory: ${{ steps.detect.outputs.path }}
 
+      # This step was `continue-on-error: true` until 2026-08-04, which meant
+      # the audit gate COULD NOT FAIL. It printed advisories into the log and
+      # the job went green regardless.
+      #
+      # That is worse than having no gate at all. A repo with no audit step is
+      # visibly ungated; a repo with a decorative one looks audited. Four repos
+      # on this lane were carrying HIGH advisories behind a green badge --
+      # seolith-hindi-buddy printed "1 high" in a run on 2026-08-04 and
+      # reported success the same second.
+      #
+      # It also defeats inspection: the jobs API reports a continue-on-error
+      # step as conclusion=success even when the command exited non-zero, so
+      # the masking is invisible to tooling as well as to people.
+      #
+      # If a repo genuinely cannot clear its advisories yet, raise ITS
+      # audit-level input, with a dated comment saying why. Do not restore this
+      # flag -- that re-hides every repo on the lane to unblock one.
       - name: Audit dependencies
         run: npm audit --audit-level=${{ inputs.audit-level }}
         working-directory: ${{ steps.detect.outputs.path }}
-        continue-on-error: true
 
       - name: Build
         shell: pwsh
