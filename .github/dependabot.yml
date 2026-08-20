@@ -1,0 +1,9 @@
+# Auto-generated estate rollout (2026-08-20) from seolith-dev-standards/templates/dependabot.yml.
+# Weekly cadence, PR limit 5 -- raise once the initial backlog is cleared.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
