@@ -19,6 +19,44 @@ Prefer reusable workflows from this repo:
 
 Production-facing app repos should also satisfy the [common services standard](COMMON_SERVICES_STANDARD.md) before promotion to production.
 
+## Security Gates
+
+A 2026-08-19 estate audit found Dependabot in 1 of 96 repos, zero SAST anywhere, no dependency-review gate, and the conformance script unwired from CI. These gates close that. Adopt them in each repo's PR workflow (the caller's own workflow file sets `on: pull_request`); prefer pinning to `@v1.0.0` over `@main`.
+
+### Conformance (M1–M10 MUST rules)
+
+Runs `scripts/seolith-conformance.sh` against the calling repo. Default mode `--new-only` fails only on findings not in the committed `.seolith-conformance-baseline` — run the script locally with `--write-baseline` once and commit the result before wiring the gate. Waivers live in the repo's `.seolith-waivers` (see the script header).
+
+```yaml
+jobs:
+  conformance:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/conformance.yml@v1.0.0
+```
+
+### CodeQL (SAST)
+
+Default languages `javascript-typescript` (no build required). .NET repos: C# needs a build to extract — pass `languages: csharp` and prefer a repo-local workflow with restore/build steps between init and analyze.
+
+```yaml
+jobs:
+  codeql:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/codeql.yml@v1.0.0
+```
+
+### Dependency review (PR gate)
+
+Fails the PR when a changed dependency introduces a vulnerability of moderate severity or higher.
+
+```yaml
+jobs:
+  dependency-review:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/dependency-review.yml@v1.0.0
+```
+
+### Dependabot
+
+Dependabot cannot be a reusable workflow — copy [templates/dependabot.yml](../templates/dependabot.yml) to `.github/dependabot.yml` in each repo and uncomment the blocks for the repo's stack. Weekly cadence, 5 open PRs max.
+
 ## Required Gates
 
 - Checkout on `actions/checkout@v5`.
