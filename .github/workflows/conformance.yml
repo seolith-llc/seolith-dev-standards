@@ -1,0 +1,114 @@
+name: Conformance gate
+
+# Reusable gate for the MUST tier (M1-M10) of the SEOlith Engineering Standard.
+# Runs scripts/seolith-conformance.sh from THIS repo against the CALLING repo.
+#
+# WHY THIS EXISTS. The conformance checker has existed since 2026-07-28, but a
+# 2026-08-19 estate audit found it wired into NO CI gate anywhere: the rules
+# were enforced only when someone remembered to run the script by hand, which
+# in practice meant never between audits. A standard that is not gated in CI
+# is documentation.
+#
+# MODE. The default is `--new-only`, the merge-gate mode: it fails only on
+# findings NOT present in the calling repo's committed
+# `.seolith-conformance-baseline`. This is deliberate -- 96 repos carry
+# historical debt, and failing every one of them on day one would train the
+# fleet to ignore red builds. To adopt:
+#
+#   1. Run `scripts/seolith-conformance.sh <repo> --write-baseline` once,
+#      locally, and commit the resulting `.seolith-conformance-baseline`.
+#   2. Wire this workflow into the repo's PR checks. New violations block;
+#      frozen debt does not.
+#   3. Burn the baseline down over time; every removal shrinks the ledger.
+#
+# Pass `mode: ""` (empty) to audit everything, or `mode: --write-baseline`
+# semantics do not apply here -- baselines are written locally, never in CI.
+#
+# WAIVERS. Per-finding exceptions live in the calling repo's `.seolith-waivers`
+# (tab-separated, with an EXPIRY date -- an expired waiver is itself a hard
+# failure). Format, baseline semantics, and the false-positive lessons encoded
+# in each rule are documented in the header of scripts/seolith-conformance.sh.
+# Read that before adding a waiver; keep waivers narrow and dated.
+#
+# PINNING. The standards repo is checked out at the `ref` input, which defaults
+# to the v1.0.0 tag, NOT main -- callers pinning their workflow to @v1.0.0
+# must get the scripts from the same immutable ref, or the pin is theatre.
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          Runner label set. Self-hosted by default -- the org's included Actions
+          minutes are spent and the spending limit is $0, so a GitHub-hosted
+          default fails before starting.
+        required: false
+        type: string
+        default: '["self-hosted","Linux","X64","seolith-local","linux-build"]'
+      mode:
+        description: >-
+          Arguments passed to seolith-conformance.sh after the path. Default
+          `--new-only`: fail only on findings absent from the committed
+          .seolith-conformance-baseline. Pass '' for a full audit.
+        required: false
+        type: string
+        default: "--new-only"
+      ref:
+        description: >-
+          Ref of seolith-dev-standards to take scripts from. Defaults to the
+          v1.0.0 tag so pinned callers get immutable scripts.
+        required: false
+        type: string
+        default: "v1.0.0"
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: conformance
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      # The CALLING repo, checked out at the workspace root with default
+      # actions/checkout behaviour -- that is the repo under audit.
+      - name: Checkout calling repo
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The standards repo, checked out alongside at .dev-standards. The gate
+      # runs the script from the pinned ref, not from whatever happens to be
+      # on main today.
+      - name: Checkout seolith-dev-standards scripts
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: seolith-llc/seolith-dev-standards
+          ref: ${{ inputs.ref }}
+          path: .dev-standards
+
+      - name: Run conformance checks
+        shell: bash
+        env:
+          # Bound through env, never interpolated into the shell -- the rule
+          # that closed a command-injection hole in deploy-staging.yml.
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086 # MODE is intentionally word-split
+          bash .dev-standards/scripts/seolith-conformance.sh . $MODE
+
+      - name: Summary
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "### Conformance gate FAILED"
+            echo ""
+            echo "New MUST-tier violations were found that are not in the committed"
+            echo "\`.seolith-conformance-baseline\`. Fix them, or -- for genuine"
+            echo "exceptions -- add a narrow, DATED waiver to \`.seolith-waivers\`."
+            echo ""
+            echo "Rule definitions and waiver format: \`scripts/seolith-conformance.sh\`"
+            echo "header in seolith-llc/seolith-dev-standards."
+          } >> "$GITHUB_STEP_SUMMARY"
