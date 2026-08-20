@@ -30,9 +30,9 @@ name: Conformance gate
 # in each rule are documented in the header of scripts/seolith-conformance.sh.
 # Read that before adding a waiver; keep waivers narrow and dated.
 #
-# PINNING. The standards repo is checked out at the `ref` input, which defaults
-# to the v1.0.0 tag, NOT main -- callers pinning their workflow to @v1.0.0
-# must get the scripts from the same immutable ref, or the pin is theatre.
+# PINNING. The conformance action is pinned by callers to the same immutable
+# standards release as this reusable workflow. The v1.0.1 release uses the
+# composite action so private callers do not need a cross-repository PAT.
 
 on:
   workflow_call:
@@ -53,14 +53,6 @@ on:
         required: false
         type: string
         default: "--new-only"
-      ref:
-        description: >-
-          Ref of seolith-dev-standards to take scripts from. Defaults to the
-          v1.0.0 tag so pinned callers get immutable scripts.
-        required: false
-        type: string
-        default: "v1.0.0"
-
 permissions:
   contents: read
 
@@ -77,26 +69,10 @@ jobs:
       - name: Checkout calling repo
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      # The standards repo, checked out alongside at .dev-standards. The gate
-      # runs the script from the pinned ref, not from whatever happens to be
-      # on main today.
-      - name: Checkout seolith-dev-standards scripts
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          repository: seolith-llc/seolith-dev-standards
-          ref: ${{ inputs.ref }}
-          path: .dev-standards
-
       - name: Run conformance checks
-        shell: bash
-        env:
-          # Bound through env, never interpolated into the shell -- the rule
-          # that closed a command-injection hole in deploy-staging.yml.
-          MODE: ${{ inputs.mode }}
-        run: |
-          set -euo pipefail
-          # shellcheck disable=SC2086 # MODE is intentionally word-split
-          bash .dev-standards/scripts/seolith-conformance.sh . $MODE
+        uses: seolith-llc/seolith-dev-standards/.github/actions/conformance@v1.0.1
+        with:
+          mode: ${{ inputs.mode }}
 
       - name: Summary
         if: failure()
