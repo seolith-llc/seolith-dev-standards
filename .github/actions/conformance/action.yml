@@ -1,0 +1,22 @@
+name: SEOlith conformance
+description: Run the SEOlith MUST-tier conformance checker against the calling repository
+
+inputs:
+  mode:
+    description: Arguments passed to seolith-conformance.sh after the repository path
+    required: false
+    default: --new-only
+
+runs:
+  using: composite
+  steps:
+    - name: Run conformance checks
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        # The action repository is downloaded by GitHub Actions, so no
+        # cross-repository checkout token is needed for private standards.
+        # shellcheck disable=SC2086 # MODE is intentionally word-split
+        bash "$GITHUB_ACTION_PATH/../../../scripts/seolith-conformance.sh" "$GITHUB_WORKSPACE" $MODE
