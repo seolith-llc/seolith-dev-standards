@@ -1,0 +1,75 @@
+name: CodeQL analysis
+
+# Reusable CodeQL SAST gate. Called by every repo; uploads findings to the
+# repo's Security tab and fails PR checks on new alerts.
+#
+# WHY THIS EXISTS. A 2026-08-19 estate audit found ZERO static analysis
+# anywhere in the org: 96 repos, no CodeQL, no Semgrep, nothing. Secret
+# scanning (secret-scan.yml) catches committed credentials; it does not catch
+# the injection, path-traversal, and XSS classes that only dataflow analysis
+# sees. CodeQL is free for the org's repos and requires no licence, so the
+# only thing that was missing was a callable workflow.
+#
+# SCOPE -- INTERPRETED LANGUAGES ONLY, BY DEFAULT. The default `languages`
+# input is `javascript-typescript`, which (like python, go, ruby) is analysed
+# WITHOUT a build: codeql-action checks out the source and extracts it.
+#
+# C# IS DIFFERENT. C# requires a successful build (or build-mode: none with
+# known limitations) to extract, so a .NET caller MUST pass `languages: csharp`
+# AND, where build-mode: none produces poor results, add restore/build steps
+# between init and analyze in a repo-local workflow instead of calling this
+# one. Do not force every caller to carry .NET build machinery for the sake
+# of the repos that need it.
+#
+# PINNING. codeql-action is pinned by full-length SHA, not a mutable tag --
+# this workflow runs with security-events: write on every calling repo, and a
+# hijacked tag would inherit that permission across the estate. Bumping the
+# version means changing both SHAs below, deliberately.
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: >-
+          Comma-separated CodeQL languages. Default javascript-typescript.
+          Use python, go, ruby, etc. as the repo's stack demands. For csharp,
+          read the header: .NET repos likely need a repo-local workflow with
+          build steps instead.
+        required: false
+        type: string
+        default: "javascript-typescript"
+      runs-on:
+        description: >-
+          Runner label set. Self-hosted by default -- the org's included Actions
+          minutes are spent and the spending limit is $0, so a GitHub-hosted
+          default fails before starting.
+        required: false
+        type: string
+        default: '["self-hosted","Linux","X64","seolith-local","linux-build"]'
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: codeql (${{ inputs.languages }})
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 30
+    permissions:
+      # security-events: write is required to upload SARIF to the Security
+      # tab. actions: read lets codeql-action download API caches of prior
+      # analyses. Neither grants anything beyond this job.
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          languages: ${{ inputs.languages }}
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7

@@ -1,0 +1,55 @@
+name: Dependency review
+
+# Reusable PR gate: fails the pull request when a changed dependency
+# introduces a known vulnerability at or above `fail-on-severity`.
+#
+# WHY THIS EXISTS. A 2026-08-19 estate audit found NO dependency-review gate
+# on any PR in the org: Dependabot was configured in only 1 of 96 repos, and
+# even that one had nothing blocking a vulnerable bump from merging. Every
+# lockfile diff was reviewed by eye, which in practice meant not at all. This
+# action is the cheap half of the fix -- it only diffs dependencies already
+# changing in the PR, so it costs seconds and has no baseline to manage.
+#
+# SCOPE. This reviews what a PR CHANGES. It does not inventory existing
+# vulnerable dependencies -- that is Dependabot's job (see
+# templates/dependabot.yml in this repo), and the two are complementary:
+# Dependabot raises the fix PRs, this gate stops new bad ones merging.
+#
+# fail-on-severity: moderate is the estate default. Anything stricter on day
+# one would red the fleet on transitive noise; tighten per-repo once the
+# backlog is visible.
+#
+# PINNING. Pinned by full-length SHA with the version in a comment -- this
+# gate runs on every PR estate-wide, and a mutable tag would be a supply-chain
+# hole in the supply-chain gate. Bump deliberately, both fields at once.
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          Runner label set. Self-hosted by default -- the org's included Actions
+          minutes are spent and the spending limit is $0, so a GitHub-hosted
+          default fails before starting.
+        required: false
+        type: string
+        default: '["self-hosted","Linux","X64","seolith-local","linux-build"]'
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: dependency-review
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate

@@ -1,0 +1,56 @@
+# Copy this file to <your-repo>/.github/dependabot.yml and uncomment the
+# blocks for your stack. Commit it -- Dependabot reads only the default branch.
+#
+# WHY THIS EXISTS. A 2026-08-19 estate audit found Dependabot configured in
+# only 1 of 96 repos. Dependabot is repo-config, not a workflow: it CANNOT be
+# shipped as a reusable workflow from seolith-dev-standards, so this template
+# must be copied into every repo. That is the only way GitHub offers.
+#
+# The github-actions block below is the floor -- every repo with workflows
+# should keep it. It is what turns "callers pinned to @main" incidents into
+# quiet version-bump PRs instead of audit findings.
+#
+# Keep open-pull-requests-limit small. The first run against a repo that has
+# never had Dependabot will open a PR for every outdated dependency; a limit
+# of 5 keeps that reviewable. Raise it once the backlog is cleared.
+#
+# Pair this with the dependency-review.yml reusable workflow: Dependabot
+# raises the fix PRs, the gate stops new vulnerable versions merging.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # --- NuGet (.NET) -------------------------------------------------------
+  # - package-ecosystem: "nuget"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+
+  # --- npm (Node / Angular) -----------------------------------------------
+  # For a nested app set directory to the app root, e.g. "/frontend".
+  # - package-ecosystem: "npm"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+
+  # --- pip (Python) -------------------------------------------------------
+  # - package-ecosystem: "pip"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+
+  # --- docker -------------------------------------------------------------
+  # directory is where the Dockerfile lives, e.g. "/" or "/deploy".
+  # - package-ecosystem: "docker"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
