@@ -37,6 +37,9 @@ on:
         required: false
         type: string
         default: "high"
+    secrets:
+      PACKAGES_READ_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -48,7 +51,7 @@ jobs:
     timeout-minutes: 25
     env:
       NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
-      NODE_AUTH_TOKEN: ${{ github.token }}
+      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v5
 
