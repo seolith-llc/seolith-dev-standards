@@ -1,0 +1,90 @@
+name: Deploy to Cloudflare Pages
+
+# Reusable deploy lane: build a static/PWA frontend and publish it to
+# Cloudflare Pages. Pages is free (unlimited bandwidth, global CDN), which is
+# why the estate is moving static frontends OFF EC2+nginx -- see
+# docs/HOSTING_CONSOLIDATION.md.
+#
+# WHY THIS EXISTS. The 2026-08-19 hosting audit found every frontend served
+# from self-hosted EC2 behind nginx -- including purely static PWAs and
+# marketing sites that cost instance-hours for no reason. Pages hosts those
+# for $0. The first deploy auto-creates the Pages project; custom domains are
+# a separate, deliberate DNS step (documented in HOSTING_CONSOLIDATION.md).
+#
+# SECRETS. Callers must pass cloudflare-account-id and cloudflare-api-token.
+# The token needs only "Pages: Edit" on the account -- do not reuse a
+# broader token. Estate default: the CLOUDFLARE_PAGES_* org secrets.
+#
+# The wrangler ACTION is pinned by SHA: this lane runs with a live Cloudflare
+# credential, so a mutable tag is a supply-chain hole.
+
+on:
+  workflow_call:
+    inputs:
+      app-path:
+        description: Directory of the frontend app (where package.json lives).
+        required: false
+        type: string
+        default: "."
+      output-dir:
+        description: Build output dir relative to app-path (dist for Vite/Astro).
+        required: false
+        type: string
+        default: "dist"
+      project-name:
+        description: Cloudflare Pages project name (auto-created on first deploy).
+        required: true
+        type: string
+      package-manager:
+        description: npm | pnpm
+        required: false
+        type: string
+        default: "npm"
+      runs-on:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+    secrets:
+      cloudflare-account-id:
+        required: true
+      cloudflare-api-token:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+
+      - name: Enable pnpm (pnpm repos only)
+        if: inputs.package-manager == 'pnpm'
+        run: corepack enable
+
+      - name: Install and build
+        working-directory: ${{ inputs.app-path }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.package-manager }}" = "pnpm" ]; then
+            pnpm install --frozen-lockfile
+            pnpm build
+          else
+            npm ci
+            npm run build
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.cloudflare-api-token }}
+          accountId: ${{ secrets.cloudflare-account-id }}
+          command: pages deploy "${{ inputs.app-path }}/${{ inputs.output-dir }}" --project-name="${{ inputs.project-name }}"
