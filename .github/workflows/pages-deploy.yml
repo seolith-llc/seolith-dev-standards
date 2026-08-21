@@ -8,12 +8,15 @@ name: Deploy to Cloudflare Pages
 # WHY THIS EXISTS. The 2026-08-19 hosting audit found every frontend served
 # from self-hosted EC2 behind nginx -- including purely static PWAs and
 # marketing sites that cost instance-hours for no reason. Pages hosts those
-# for $0. The first deploy auto-creates the Pages project; custom domains are
-# a separate, deliberate DNS step (documented in HOSTING_CONSOLIDATION.md).
+# for $0. The lane auto-creates the Pages project when missing (wrangler v4
+# `pages deploy` refuses to). Custom domains are a separate, deliberate DNS
+# step (documented in HOSTING_CONSOLIDATION.md).
 #
 # SECRETS. Callers must pass cloudflare-account-id and cloudflare-api-token.
 # The token needs only "Pages: Edit" on the account -- do not reuse a
 # broader token. Estate default: the CLOUDFLARE_PAGES_* org secrets.
+# packages-read-token is OPTIONAL: pass it only for repos whose lockfile pulls
+# @seolith-llc/* from GitHub Packages (estate default: PACKAGES_READ_TOKEN).
 #
 # The wrangler ACTION is pinned by SHA: this lane runs with a live Cloudflare
 # credential, so a mutable tag is a supply-chain hole.
@@ -49,6 +52,9 @@ on:
         required: true
       cloudflare-api-token:
         required: true
+      packages-read-token:
+        description: read:packages token for @seolith-llc/* on GitHub Packages; only needed when the lockfile references it.
+        required: false
 
 permissions:
   contents: read
@@ -62,13 +68,25 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
+      # pnpm must exist BEFORE setup-node: setup-node's package-manager cache
+      # shells out to the package manager, and corepack shims do not survive
+      # the node switch. pnpm/action-setup reads the repo's packageManager pin.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        if: inputs.package-manager == 'pnpm'
+        with:
+          run_install: false
+
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '24'
 
-      - name: Enable pnpm (pnpm repos only)
-        if: inputs.package-manager == 'pnpm'
-        run: corepack enable
+      # GitHub Packages auth for repos consuming @seolith-llc/* (secrets cannot
+      # be referenced in `if`, hence the env hop).
+      - name: Authenticate to GitHub Packages
+        if: env.PACKAGES_READ_TOKEN != ''
+        env:
+          PACKAGES_READ_TOKEN: ${{ secrets.packages-read-token }}
+        run: echo "//npm.pkg.github.com/:_authToken=${PACKAGES_READ_TOKEN}" >> "$HOME/.npmrc"
 
       - name: Install and build
         working-directory: ${{ inputs.app-path }}
@@ -80,6 +98,17 @@ jobs:
           else
             npm ci
             npm run build
+          fi
+
+      # wrangler v4 `pages deploy` fails if the project does not exist yet.
+      - name: Ensure Pages project exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.cloudflare-account-id }}
+        run: |
+          set -euo pipefail
+          if ! npx --yes wrangler@4 pages project list 2>/dev/null | grep -qF "${{ inputs.project-name }}"; then
+            npx --yes wrangler@4 pages project create "${{ inputs.project-name }}" --production-branch=main
           fi
 
       - name: Deploy to Cloudflare Pages
