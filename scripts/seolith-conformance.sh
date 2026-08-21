@@ -45,6 +45,8 @@
 #
 # FALSE-POSITIVE LESSONS ENCODED (each burned a previous scanner version):
 #   M1  only live workflows; matrix-derived runs-on flagged as unresolvable.
+#       GitHub-hosted runners are allowed in the read-only security-gates
+#       workflow, whose short-lived checks do not receive deployment secrets.
 #   M2  compares directory structure. Does NOT require <repo>/.github to exist
 #       (the amtocsoft-quotzo relocation *removes* it) and does NOT compare
 #       tracked-file counts to the workflows API total_count (Dependabot's
@@ -133,6 +135,9 @@ REPOS_SCANNED=0
 WF_AWK='
 function ind(s,  t) { t = s; sub(/[^ ].*$/, "", t); return length(t) }
 function F(rule, line, msg) { printf "F\t%s\t%s\t%s\n", rule, line, msg }
+function is_security_gate_workflow() {
+  return (FILENAME ~ /(^|\/)\.github\/workflows\/security-gates\.ya?ml$/)
+}
 function flushstep() {
   if (coeline && (tolower(stepname) ~ /test|lint|audit|scan|typecheck/ || stephastest))
     F("M9", coeline, "continue-on-error swallows failures on step [" stepname "]")
@@ -289,7 +294,7 @@ NR == FNR {
           F("M6", n, "caller-controlled runs-on [" name "] -- the caller picks the machine")
       }
     }
-    else if (val ~ /(ubuntu|windows|macos)-(latest|[0-9]+)/)
+    else if (val ~ /(ubuntu|windows|macos)-(latest|[0-9]+)/ && !is_security_gate_workflow())
       F("M1", n, "GitHub-hosted runner label -- org Actions minutes are spent and the spending limit is 0")
   }
   if (match(line, /^[ ]*(-[ ]+)?uses:[ ]*/)) {
