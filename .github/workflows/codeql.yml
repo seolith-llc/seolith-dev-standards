@@ -63,13 +63,43 @@ jobs:
       actions: read
       contents: read
     steps:
+      # WHY THIS GUARD. Code scanning on PRIVATE repos requires GitHub Code
+      # Security (the paid GHAS successor). Without it the analyze step 403s
+      # ("Code Security must be enabled"), which made every estate caller red
+      # on 2026-08-21. The guard probes the code-scanning API first: when Code
+      # Security is off, the job passes with a skip notice instead of failing.
+      # Enable Code Security on a repo and CodeQL runs for real, unchanged.
+      # curl, not gh: gh is not installed on the self-hosted runners.
+      - name: Check Code Security availability
+        id: guard
+        env:
+          GH_TOKEN_CURL: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/cs-probe.json -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN_CURL" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/code-scanning/analyses?per_page=1")
+          if [ "$code" = "200" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          elif grep -q "Code Security must be enabled" /tmp/cs-probe.json; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Code Security not enabled for this private repo; CodeQL skipped. See codeql.yml header."
+          else
+            echo "::error::code-scanning probe failed (HTTP $code): $(head -c 200 /tmp/cs-probe.json)"
+            exit 1
+          fi
+
       - name: Checkout calling repo
+        if: steps.guard.outputs.enabled == 'true'
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Initialize CodeQL
+        if: steps.guard.outputs.enabled == 'true'
         uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           languages: ${{ inputs.languages }}
 
       - name: Analyze
+        if: steps.guard.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
