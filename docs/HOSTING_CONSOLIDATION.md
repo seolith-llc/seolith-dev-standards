@@ -18,13 +18,19 @@ Workers (hype-buddy telemetry, fishbowl push) — Pages is the missing free tier
 ## Pages migration candidates (static/PWA)
 
 - `seolith-reference-sites` — 10 Astro marketing sites; the single biggest win (one repo, 10 Pages projects). Also already has a workers/ dir.
-- `seolith-hindi-buddy`, `seolith-learn-tamil-letters`, `critter-path-adventures`, `seolith-box-breathing`, `seolith-praiseit` (partially on Workers already), `seolith-debug-dojo`, `hype-buddy`, `seolith-fishbowl` (site app), `vroom-boom-app`, `vroom-boom-buggies`, `seolith-next-gen-site`, `pci-hvac` (static mirror)
+- `seolith-hindi-buddy`, `seolith-learn-tamil-letters`, `critter-path-adventures`, `seolith-praiseit` (partially on Workers already), `seolith-debug-dojo`, `hype-buddy`, `seolith-fishbowl` (site app), `vroom-boom-app`, `vroom-boom-buggies`, `seolith-next-gen-site`, `pci-hvac` (static mirror)
 - `sight-fix`, `seolith-teselith` frontends (static PWA shells; their APIs, if any, stay or consolidate)
+- NOT `seolith-box-breathing` (removed from the 2026-08-21 pilot): its vinext build
+  emits a Cloudflare **Worker** (`dist/server/wrangler.json`) with D1/R2 bindings,
+  so `pages deploy` cannot host it. It needs a Workers lane with provisioned
+  D1/R2 resources — separate, deliberate work, not part of the static sweep.
 
 ## Migration procedure per app
 
-1. Add a caller of `pages-deploy.yml` (this repo, @v1.1.0+): build + deploy on push to main.
-   First deploy auto-creates the Pages project and publishes `https://<project>.pages.dev`.
+1. Add a caller of `pages-deploy.yml` (this repo, @v1.1.1+): build + deploy on push to main.
+   The lane auto-creates the Pages project when missing and publishes
+   `https://<project>.pages.dev`. If the repo's lockfile pulls `@seolith-llc/*`
+   from GitHub Packages, also pass `packages-read-token: ${{ secrets.PACKAGES_READ_TOKEN }}`.
 2. Verify the pages.dev URL (health-check the site; PWAs check the service worker).
 3. Custom domain cutover (deliberate, per domain): Pages project settings → add custom
    domain; Cloudflare DNS flips automatically since CF already manages the zone.
@@ -44,8 +50,8 @@ Workers (hype-buddy telemetry, fishbowl push) — Pages is the missing free tier
 Create org secrets so every repo can call `pages-deploy.yml`:
 
 ```bash
-gh secret set CLOUDFLARE_PAGES_ACCOUNT_ID --org seolith-llc --visibility selected ...
-gh secret set CLOUDFLARE_PAGES_API_TOKEN  --org seolith-llc --visibility selected ...
+gh secret set CLOUDFLARE_PAGES_ACCOUNT_ID --org seolith-llc --visibility all ...
+gh secret set CLOUDFLARE_PAGES_API_TOKEN  --org seolith-llc --visibility all ...
 ```
 
 Use a token scoped to **Pages: Edit** only. The per-repo `CLOUDFLARE_API_TOKEN`
