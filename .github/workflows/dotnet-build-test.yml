@@ -65,7 +65,7 @@ jobs:
         run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate
         
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         env:
           DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
         with:
