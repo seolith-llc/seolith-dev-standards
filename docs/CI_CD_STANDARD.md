@@ -21,7 +21,9 @@ Production-facing app repos should also satisfy the [common services standard](C
 
 ## Security Gates
 
-A 2026-08-19 estate audit found Dependabot in 1 of 96 repos, zero SAST anywhere, no dependency-review gate, and the conformance script unwired from CI. These gates close that. Adopt them in each repo's PR workflow (the caller's own workflow file sets `on: pull_request`); prefer pinning to `@v1.0.0` over `@main`.
+A 2026-08-19 estate audit found Dependabot in 1 of 96 repos, zero SAST anywhere, no dependency-review gate, and the conformance script unwired from CI. These gates close that. Adopt them in each repo's PR workflow (the caller's own workflow file sets `on: pull_request`); pin to the current immutable release rather than `@main`.
+
+M1 permits GitHub-hosted runners only in the read-only `security-gates.yml` workflow. Build and deployment workflows remain subject to the self-hosted runner requirement; this exception keeps security analysis isolated from production credentials while avoiding a persistent runner for untrusted PR code.
 
 ### Conformance (M1–M10 MUST rules)
 
@@ -30,7 +32,7 @@ Runs `scripts/seolith-conformance.sh` against the calling repo. Default mode `--
 ```yaml
 jobs:
   conformance:
-    uses: seolith-llc/seolith-dev-standards/.github/workflows/conformance.yml@v1.0.0
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/conformance.yml@v1.0.2
 ```
 
 ### CodeQL (SAST)
@@ -40,7 +42,7 @@ Default languages `javascript-typescript` (no build required). .NET repos: C# ne
 ```yaml
 jobs:
   codeql:
-    uses: seolith-llc/seolith-dev-standards/.github/workflows/codeql.yml@v1.0.0
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/codeql.yml@v1.0.2
 ```
 
 ### Dependency review (PR gate)
@@ -50,7 +52,7 @@ Fails the PR when a changed dependency introduces a vulnerability of moderate se
 ```yaml
 jobs:
   dependency-review:
-    uses: seolith-llc/seolith-dev-standards/.github/workflows/dependency-review.yml@v1.0.0
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/dependency-review.yml@v1.0.2
 ```
 
 ### Dependabot
