@@ -85,9 +85,13 @@ on:
         # Use node-capable, never bare linux-build: EWA-NUC-KRK-LINUX is a
         # WSL 1 host and cannot run Node at all.
         default: '["self-hosted","Windows","X64","seolith-local"]'
+    secrets:
+      PACKAGES_READ_TOKEN:
+        required: false
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   lint-and-build:
@@ -100,6 +104,7 @@ jobs:
       NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
       NPM_CONFIG_FUND: "false"
       NPM_CONFIG_PROGRESS: "false"
+      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v5
 
@@ -107,6 +112,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node-version }}
+          registry-url: https://npm.pkg.github.com
+          package-manager-cache: false
 
       - name: Run AgentShield Security Scan
         run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate
