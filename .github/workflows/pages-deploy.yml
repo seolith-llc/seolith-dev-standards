@@ -46,7 +46,7 @@ on:
       runs-on:
         required: false
         type: string
-        default: '["ubuntu-latest"]'
+        default: '["self-hosted","Linux","X64","seolith-local","linux-build"]'
     secrets:
       cloudflare-account-id:
         required: true
