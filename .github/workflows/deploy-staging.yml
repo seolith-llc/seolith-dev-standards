@@ -173,7 +173,7 @@ on:
           callers currently override this with the self-hosted pool.
         required: false
         type: string
-        default: '["ubuntu-latest"]'
+        default: '["self-hosted","Linux","X64","seolith-local","linux-build"]'
     secrets:
       AWS_DEPLOY_ROLE_ARN:
         description: "Role assumed via OIDC. Needs ssm:SendCommand and ec2:DescribeInstances."
