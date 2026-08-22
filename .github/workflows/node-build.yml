@@ -36,15 +36,20 @@ on:
         # so every npx there dies instantly. Callers needing Windows can still
         # override this input.
         default: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
+    secrets:
+      PACKAGES_READ_TOKEN:
+        required: false
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   build:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     env:
       NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
+      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v5
 
@@ -71,6 +76,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node-version }}
+          registry-url: https://npm.pkg.github.com
 
       - name: Install dependencies
         shell: pwsh
