@@ -22,6 +22,19 @@ name: Dependency review
 # PINNING. Pinned by full-length SHA with the version in a comment -- this
 # gate runs on every PR estate-wide, and a mutable tag would be a supply-chain
 # hole in the supply-chain gate. Bump deliberately, both fields at once.
+#
+# WHY THE GUARD. The dependency review API on PRIVATE repos requires GitHub
+# Code Security (the paid GHAS successor) -- dependency graph alone is not
+# enough. Verified 2026-08-21 on seolith-ops-control: dependency graph on,
+# compare API still 403s, and the action fails every PR ("Dependency review
+# is not supported on this repository"). Same estate-wide breakage CodeQL had
+# before its v1.0.3 guard, so this mirrors that fix: probe the API first and
+# pass with a skip notice when the feature is unavailable. One difference
+# from the CodeQL guard: the 403 body here is a bare "Forbidden" with no
+# distinctive message to grep, so the guard keys on status code -- and first
+# sanity-probes the repo endpoint so a broken token fails the job loudly
+# instead of masquerading as "unsupported" and silently skipping the gate.
+# Enable Code Security on a repo and the review runs for real, unchanged.
 
 on:
   workflow_call:
@@ -46,10 +59,50 @@ jobs:
     permissions:
       contents: read
     steps:
+      # See "WHY THE GUARD" in the header. curl, not gh: gh is not installed
+      # on the self-hosted runners.
+      - name: Check dependency review availability
+        id: guard
+        env:
+          GH_TOKEN_CURL: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+            # Not a pull_request event: run the action anyway so it emits its
+            # own clear "only supported on pull_request" error.
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          auth=(-H "Authorization: Bearer $GH_TOKEN_CURL" -H "Accept: application/vnd.github+json")
+          # Sanity probe: the repo endpoint must answer 200 with this token.
+          # Without this, a dead token would 403 the compare probe below and
+          # be misread as "feature unavailable", silently disabling the gate.
+          code=$(curl -sS -o /tmp/repo-probe.json -w '%{http_code}' "${auth[@]}" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY")
+          if [ "$code" != "200" ]; then
+            echo "::error::repo probe failed (HTTP $code): $(head -c 200 /tmp/repo-probe.json)"
+            exit 1
+          fi
+          code=$(curl -sS -o /tmp/dr-probe.json -w '%{http_code}' "${auth[@]}" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/dependency-graph/compare/$BASE_SHA...$HEAD_SHA")
+          if [ "$code" = "200" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          elif [ "$code" = "403" ] || [ "$code" = "404" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Dependency review API unavailable (HTTP $code; needs GitHub Code Security on private repos); review skipped. See dependency-review.yml header."
+          else
+            echo "::error::dependency-graph compare probe failed (HTTP $code): $(head -c 200 /tmp/dr-probe.json)"
+            exit 1
+          fi
+
       - name: Checkout calling repo
+        if: steps.guard.outputs.enabled == 'true'
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Review dependency changes
+        if: steps.guard.outputs.enabled == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
