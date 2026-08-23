@@ -17,9 +17,26 @@ Workers (hype-buddy telemetry, fishbowl push) — Pages is the missing free tier
 
 ## Pages migration candidates (static/PWA)
 
-- `seolith-reference-sites` — 10 Astro marketing sites; the single biggest win (one repo, 10 Pages projects). Also already has a workers/ dir.
-- `seolith-hindi-buddy`, `seolith-learn-tamil-letters`, `critter-path-adventures`, `seolith-praiseit` (partially on Workers already), `seolith-debug-dojo`, `hype-buddy`, `seolith-fishbowl` (site app), `vroom-boom-app`, `vroom-boom-buggies`, `seolith-next-gen-site`, `pci-hvac` (static mirror)
-- `sight-fix`, `seolith-teselith` frontends (static PWA shells; their APIs, if any, stay or consolidate)
+DONE and verified live on pages.dev (deploy-on-push from main):
+
+- `seolith-reference-sites` — 10 Astro marketing sites (refsite-01..10); repo-local
+  matrix lane (pnpm workspace doesn't fit the reusable). Batch 1.
+- Batch 1 (reusable callers): `seolith-hindi-buddy`, `learn-tamil-letters` (project
+  `learn-tamil-letters`), `critter-path-adventures`.
+- Batch 2 (reusable callers): `seolith-debug-dojo` (project `debug-dojo`),
+  `seolith-praiseit` (project `praiseit`; its Workers API lane is separate).
+- Batch 2 (repo-local, no `npm ci` possible/needed): `seolith-next-gen-site`
+  (pure static `public/`), `pci-hvac` (static mirror `PlumbingCareInc/`),
+  `vroom-boom-buggies` (dependency-free build script).
+
+REMAINING:
+
+- `seolith-fishbowl` (site app) — pnpm workspace; needs a reference-sites-style
+  repo-local lane (root install, per-app build).
+- `sight-fix` frontend — npm workspaces + Angular 22; decide static-vs-SSR first.
+- `seolith-teselith` frontends (static PWA shells; their APIs, if any, stay or consolidate)
+- `vroom-boom-app` — Capacitor shell, no web build output; skip unless a web
+  build is added.
 - NOT `seolith-box-breathing` (removed from the 2026-08-21 pilot): its vinext build
   emits a Cloudflare **Worker** (`dist/server/wrangler.json`) with D1/R2 bindings,
   so `pages deploy` cannot host it. It needs a Workers lane with provisioned
