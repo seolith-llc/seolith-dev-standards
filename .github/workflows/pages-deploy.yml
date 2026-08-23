@@ -18,8 +18,9 @@ name: Deploy to Cloudflare Pages
 # packages-read-token is OPTIONAL: pass it only for repos whose lockfile pulls
 # @seolith-llc/* from GitHub Packages (estate default: PACKAGES_READ_TOKEN).
 #
-# The wrangler ACTION is pinned by SHA: this lane runs with a live Cloudflare
-# credential, so a mutable tag is a supply-chain hole.
+# SUPPLY CHAIN. Third-party ACTIONS are pinned by SHA and wrangler itself is
+# npx-pinned to an exact version (npm versions are immutable): this lane runs
+# with a live Cloudflare credential, so a mutable tag is a supply-chain hole.
 
 on:
   workflow_call:
@@ -113,9 +114,12 @@ jobs:
             npx --yes wrangler@4 pages project create "${{ inputs.project-name }}" --production-branch=main
           fi
 
+      # Plain npx instead of cloudflare/wrangler-action: in pnpm workspaces the
+      # action tries to `pnpm add wrangler` at the root, which pnpm 11 refuses.
+      # npx with an EXACT version keeps the supply-chain pin (npm versions are
+      # immutable) while behaving identically for npm and pnpm repos.
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
-        with:
-          apiToken: ${{ secrets.cloudflare-api-token }}
-          accountId: ${{ secrets.cloudflare-account-id }}
-          command: pages deploy "${{ inputs.app-path }}/${{ inputs.output-dir }}" --project-name="${{ inputs.project-name }}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.cloudflare-account-id }}
+        run: npx --yes wrangler@4.114.0 pages deploy "${{ inputs.app-path }}/${{ inputs.output-dir }}" --project-name="${{ inputs.project-name }}"
