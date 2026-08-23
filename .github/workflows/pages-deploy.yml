@@ -68,17 +68,19 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      # pnpm must exist BEFORE setup-node: setup-node's package-manager cache
-      # shells out to the package manager, and corepack shims do not survive
-      # the node switch. pnpm/action-setup reads the repo's packageManager pin.
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        if: inputs.package-manager == 'pnpm'
-        with:
-          run_install: false
-
+      # Order matters: setup-node FIRST (package-manager-cache off, so it never
+      # shells out to pnpm), then corepack from the freshly installed Linux
+      # node. The seolith-local WSL runners have no Linux node of their own --
+      # without this, pnpm/action-setup's npm installer falls through WSL
+      # interop to the WINDOWS npm and dies on UNC paths.
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '24'
+          package-manager-cache: false
+
+      - name: Enable pnpm via corepack (uses the repo's packageManager pin)
+        if: inputs.package-manager == 'pnpm'
+        run: corepack enable pnpm
 
       # GitHub Packages auth for repos consuming @seolith-llc/* (secrets cannot
       # be referenced in `if`, hence the env hop).
