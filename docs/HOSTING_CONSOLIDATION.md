@@ -104,12 +104,19 @@ DONE:
   discovered during this cutover; it runs ~40 staging containers plus shared
   infra: Authentik, Seq, Vault, Dozzle, Traefik).
 
-TODO (origin confirmed EC2 by asset-hash fingerprint 2026-08-23):
-`staging-tamil-letters.seolith.com` → learn-tamil-letters (EC2 container
-`tamil-letters-prod`), `beta-pcihvac.seolith.com` → pci-hvac (currently an
-nginx 302), `seolith.com` (+www) → seolith-next-gen-site (PRODUCT DECISION
-NEEDED: live is an older Angular app — container `seolith-main-prod-web` — and
-the Pages build is the new static redesign).
+- `staging-tamil-letters.seolith.com` + `tamil-letters.seolith.com` →
+  learn-tamil-letters Pages project (verified 2026-08-24). EC2 containers
+  retired: `tamil-letters-prod` on prod-app-host-02 AND `tamil-letters-staging`
+  on the staging host.
+- `beta-pcihvac.seolith.com` → pci-hvac Pages project (verified 2026-08-24,
+  title matches Pages build). Old origin was 162.241.224.194 — a THIRD origin
+  IP, neither EC2 host (likely the shared host serving the WordPress original;
+  this repo is the static mirror). The real `pcihvac.com` does not resolve at
+  all — assigning it to the Pages project is an open decision.
+
+TODO: `seolith.com` (+www) → seolith-next-gen-site (PRODUCT DECISION NEEDED:
+live is an older Angular app — container `seolith-main-prod-web` on
+prod-app-host-02 — and the Pages build is the new static redesign).
 Remaining Pages projects (refsite-01..10, critter-path-adventures, praiseit,
 vroom-boom-buggies) have no known production domains yet — cut over if/when
 domains are assigned.
