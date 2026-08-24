@@ -88,15 +88,22 @@ their Workers lanes.
 
 ## Cutover status
 
-DONE: `hindibuddy.online` + `www` → hindi-buddy Pages project (verified
-2026-08-24, asset hash + sw.js match pages.dev). EC2 origin was 3.14.169.232 —
-vhost retirement tracked under EC2 consolidation.
+DONE:
+
+- `hindibuddy.online` + `www` + `hindi-buddy.seolith.com` → hindi-buddy Pages
+  project (verified 2026-08-24, asset hash + sw.js match pages.dev).
+  EC2 container `hindi-buddy-prod` on seolith-prod-app-host-02 RETIRED
+  (docker compose down, /opt/seolith/prod-host02-static-batch/hindi-buddy).
+- `debugdojo.com` + `www` → debug-dojo Pages project (verified 2026-08-24,
+  asset hash + sw.js match). EC2 containers `debug-dojo-prod` and
+  `debug-dojo-auth-proxy` on prod-app-host-02 NOT yet retired.
 
 TODO (origin confirmed EC2 by asset-hash fingerprint 2026-08-23):
-`debugdojo.com` (+www) → debug-dojo, `staging-tamil-letters.seolith.com` →
-learn-tamil-letters, `beta-pcihvac.seolith.com` → pci-hvac (currently an nginx
-302), `seolith.com` (+www) → seolith-next-gen-site (PRODUCT DECISION NEEDED:
-live is an older Angular app, Pages build is the new static redesign).
+`staging-tamil-letters.seolith.com` → learn-tamil-letters (EC2 container
+`tamil-letters-prod`), `beta-pcihvac.seolith.com` → pci-hvac (currently an
+nginx 302), `seolith.com` (+www) → seolith-next-gen-site (PRODUCT DECISION
+NEEDED: live is an older Angular app — container `seolith-main-prod-web` — and
+the Pages build is the new static redesign).
 Remaining Pages projects (refsite-01..10, critter-path-adventures, praiseit,
 vroom-boom-buggies) have no known production domains yet — cut over if/when
 domains are assigned.
