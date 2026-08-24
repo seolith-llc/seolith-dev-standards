@@ -142,3 +142,43 @@ DONE:
 - Pages: $0 (free tier: unlimited bandwidth, 500 builds/mo — estate is far under).
 - EC2: each retired static-site container + idle host removed is direct savings;
   expected outcome: static/marketing estate (~15 properties) off EC2 entirely.
+
+## EC2 estate (inventoried 2026-08-24, all us-east-2 unless noted)
+
+- `seolith-prod-app-host-01` (i-049e358ee9ea8118a, t3.large, 18.190.199.160):
+  ~100 containers — the stateful production workhorse: alexlopezva (blue+green),
+  app-builder, appshowcase, bos (omnifield-ai), demo01, domain-suite,
+  drishyavaak, eventkeep, lks (prod), omnifield (prod, ClickHouse),
+  premonition-play, pto-admin, ops-control, portal, touch-n-go, twbb,
+  plus shared infra (Traefik, Authentik, Seq, Vault, Dozzle, backup).
+  Disk was 96% → 86% after image/build-cache prune + truncating the 3.5GB
+  Traefik access.log. Live shared-infra data is `/opt/seolith/ssi/data`;
+  `/opt/seolith/prod/shared/data` (5GB: seq 2.6G, traefik-logs 2.2G,
+  stale authentik/auth-admin DBs ~242M) is an UNMOUNTED stale copy —
+  deletion candidate, not yet deleted. Seq `seq_data` is 9.6GB — set a
+  retention policy in the Seq UI to stop regrowth; Traefik access.log
+  needs logrotate or it regrows too.
+- `seolith-prod-app-host-02` (i-03186641877827f53, t3.medium, 3.14.169.232):
+  29 containers, lean after static-site retirements (apsis, chaipaani,
+  critter-crawl, cropfight, cubelith, goptru, hype-buddy, memorize-world,
+  one-prompt-lab, release/feelgood, main-site API+DB+admin, Traefik).
+  Disk 34%, load <1. Healthy.
+- `seolith-staging-app-host-01` (i-072321eac21205fcf, t3.large,
+  18.190.201.241): ~88 staging containers (~20 app stacks, each with its own
+  postgres/redis) + a second shared-infra stack. Disk was 85% → 64% after
+  prune; retired `hindi-buddy-staging` (app now on Pages) and removed 6
+  stale exited containers (seolith-ops-*-staging, alexlopezva bootstrap).
+  `/opt/seolith/staging/` holds dozens of `.pre-*`/`.backup.*` deploy
+  snapshots (unmeasured, GBs) — cleanup candidate. Memory still tight
+  (5.4/7.6GB + swap); downsizing to t3.medium needs ~2GB more retired.
+- `orgqa-demo` (i-0b91d234c8b8ce97b, t3.medium, us-east-1, launched
+  2026-08-15): purpose unknown, not part of the seolith estate layout —
+  stop/terminate candidate (~$30/mo).
+- No unattached EBS volumes, no unassociated EIPs, no stopped instances,
+  no other regions in use.
+- `deploy_seolith_main_prod_postgres` shows in `docker volume ls -f
+  dangling=true` on host-01 even though main-site prod runs — do NOT bulk
+  `docker volume prune` without verifying each volume first.
+- Committed baseline is ~2×t3.large + 1×t3.medium ≈ $150/mo on-demand;
+  a 1-year Compute Savings Plan would cut that ~28% once the estate
+  settles.
