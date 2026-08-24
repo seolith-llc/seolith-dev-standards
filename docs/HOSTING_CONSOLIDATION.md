@@ -49,9 +49,19 @@ REMAINING:
    `https://<project>.pages.dev`. If the repo's lockfile pulls `@seolith-llc/*`
    from GitHub Packages, also pass `packages-read-token: ${{ secrets.PACKAGES_READ_TOKEN }}`.
 2. Verify the pages.dev URL (health-check the site; PWAs check the service worker).
-3. Custom domain cutover (deliberate, per domain): Pages project settings → add custom
-   domain; Cloudflare DNS flips automatically since CF already manages the zone.
-   Old EC2/nginx vhost stays up until DNS TTLs expire — zero-downtime by construction.
+3. Custom domain cutover (deliberate, per domain) — PROVEN on hindibuddy.online
+   2026-08-24. Steps (all automatable from a workflow using the org CF secrets):
+   a. POST `/accounts/{acct}/pages/projects/{project}/domains` with `{"name": domain}`
+      — attaches the domain (status goes `pending`, "CNAME record not set" is
+      normal at this point).
+   b. In the zone, DELETE the old A/AAAA records for the hostname and CREATE a
+      proxied `CNAME -> <project>.pages.dev`. Cloudflare does NOT override
+      existing records automatically — this is the step that actually flips traffic.
+   c. Verify: the live URL must serve the same asset hash as `<project>.pages.dev`
+      (`curl -s <url> | grep -oE 'src="/assets/index-[^"]*"'`). PWAs: also check sw.js.
+   Old EC2/nginx vhost can stay up during this — the DNS flip is atomic per hostname.
+   NOTE: the org token needs Pages:Edit + Zone:Read + Zone DNS:Edit (upgraded
+   2026-08-24 for exactly this).
 4. Decommission: remove the app's container/vhost from the EC2 host; note it in
    DEPLOYMENT_INVENTORY.md with the new target.
 
@@ -71,8 +81,25 @@ gh secret set CLOUDFLARE_PAGES_ACCOUNT_ID --org seolith-llc --visibility all ...
 gh secret set CLOUDFLARE_PAGES_API_TOKEN  --org seolith-llc --visibility all ...
 ```
 
-Use a token scoped to **Pages: Edit** only. The per-repo `CLOUDFLARE_API_TOKEN`
-secrets (fishbowl, praiseit) stay for their Workers lanes.
+Use a token scoped to **Pages: Edit + Zone: Read + Zone DNS: Edit** (zone
+permissions are required for custom-domain cutovers; Pages-only cannot touch
+DNS). The per-repo `CLOUDFLARE_API_TOKEN` secrets (fishbowl, praiseit) stay for
+their Workers lanes.
+
+## Cutover status
+
+DONE: `hindibuddy.online` + `www` → hindi-buddy Pages project (verified
+2026-08-24, asset hash + sw.js match pages.dev). EC2 origin was 3.14.169.232 —
+vhost retirement tracked under EC2 consolidation.
+
+TODO (origin confirmed EC2 by asset-hash fingerprint 2026-08-23):
+`debugdojo.com` (+www) → debug-dojo, `staging-tamil-letters.seolith.com` →
+learn-tamil-letters, `beta-pcihvac.seolith.com` → pci-hvac (currently an nginx
+302), `seolith.com` (+www) → seolith-next-gen-site (PRODUCT DECISION NEEDED:
+live is an older Angular app, Pages build is the new static redesign).
+Remaining Pages projects (refsite-01..10, critter-path-adventures, praiseit,
+vroom-boom-buggies) have no known production domains yet — cut over if/when
+domains are assigned.
 
 ## Cost model
 
