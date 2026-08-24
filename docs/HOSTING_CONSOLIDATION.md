@@ -147,38 +147,66 @@ DONE:
 
 - `seolith-prod-app-host-01` (i-049e358ee9ea8118a, t3.large, 18.190.199.160):
   ~100 containers — the stateful production workhorse: alexlopezva (blue+green),
-  app-builder, appshowcase, bos (omnifield-ai), demo01, domain-suite,
+  app-builder, appshowcase, bos (omnifield-ai), domain-suite,
   drishyavaak, eventkeep, lks (prod), omnifield (prod, ClickHouse),
   premonition-play, pto-admin, ops-control, portal, touch-n-go, twbb,
   plus shared infra (Traefik, Authentik, Seq, Vault, Dozzle, backup).
-  Disk was 96% → 86% after image/build-cache prune + truncating the 3.5GB
-  Traefik access.log. Live shared-infra data is `/opt/seolith/ssi/data`;
-  `/opt/seolith/prod/shared/data` (5GB: seq 2.6G, traefik-logs 2.2G,
-  stale authentik/auth-admin DBs ~242M) is an UNMOUNTED stale copy —
-  deletion candidate, not yet deleted. Seq `seq_data` is 9.6GB — set a
-  retention policy in the Seq UI to stop regrowth; Traefik access.log
-  needs logrotate or it regrows too.
+  Disk was 96% → 80% after image/build-cache prune, truncating the 3.5GB
+  Traefik access.log, and deleting the stale unmounted
+  `/opt/seolith/prod/shared/data` copy (5GB; verified 0 container mounts).
+  Live shared-infra data is `/opt/seolith/ssi/data`.
+  Seq `seq_data` is 9.6GB — set a retention policy in the Seq UI to stop
+  regrowth; Traefik access.log needs logrotate or it regrows too.
+  The `demo01` stack (demo01.seolith.com "Builder" demo) was brought down
+  2026-08-24 (volumes kept; restart via /opt/seolith/prod/demo01).
 - `seolith-prod-app-host-02` (i-03186641877827f53, t3.medium, 3.14.169.232):
   29 containers, lean after static-site retirements (apsis, chaipaani,
   critter-crawl, cropfight, cubelith, goptru, hype-buddy, memorize-world,
   one-prompt-lab, release/feelgood, main-site API+DB+admin, Traefik).
   Disk 34%, load <1. Healthy.
 - `seolith-staging-app-host-01` (i-072321eac21205fcf, t3.large,
-  18.190.201.241): ~88 staging containers (~20 app stacks, each with its own
-  postgres/redis) + a second shared-infra stack. Disk was 85% → 64% after
-  prune; retired `hindi-buddy-staging` (app now on Pages) and removed 6
-  stale exited containers (seolith-ops-*-staging, alexlopezva bootstrap).
-  `/opt/seolith/staging/` holds dozens of `.pre-*`/`.backup.*` deploy
-  snapshots (unmeasured, GBs) — cleanup candidate. Memory still tight
-  (5.4/7.6GB + swap); downsizing to t3.medium needs ~2GB more retired.
-- `orgqa-demo` (i-0b91d234c8b8ce97b, t3.medium, us-east-1, launched
-  2026-08-15): purpose unknown, not part of the seolith estate layout —
-  stop/terminate candidate (~$30/mo).
-- No unattached EBS volumes, no unassociated EIPs, no stopped instances,
-  no other regions in use.
+  18.190.201.241): staging stacks + a second shared-infra stack. Disk was
+  85% → 64% after prune. Retired 2026-08-24 (compose down, volumes kept):
+  `hindi-buddy-staging` (on Pages), `eventkeep-staging`, `apsis-staging`,
+  `sportmed-staging`, `domain-suite-staging` (all ~zero traffic in the
+  trailing 2 weeks per Traefik access-log analysis; active stacks: portal,
+  alexlopezva, lks-ads, lks-site-and-portal, second-chance-leads, twbb,
+  one-prompt-lab, pto-admin, omnifield, appshowcase, memorize-world,
+  goptru, critter-crawl, premonition-play, refrilog, app-builder,
+  money-app). Removed 6 stale exited containers (seolith-ops-*-staging,
+  alexlopezva bootstrap). Deploy snapshots in /opt/seolith/staging
+  (.pre-*/.backup.*) total only ~358MB — left alone. Memory 4.4/7.6GB
+  after retirements; t3.medium downsize is within reach if a couple more
+  stacks retire. NOTE: `monetization.amtocsoft.com` (money-app) is served
+  from this STAGING host — client-facing traffic on the staging box.
+- `orgqa-demo` (i-0b91d234c8b8ce97b, t3.medium, us-east-1): served an
+  "Organization Q&A" demo (nginx, TLS, also reachable via
+  `org-answers.seolith.com` A 34.233.234.251). STOPPED 2026-08-24
+  (restartable; EBS + EIP retained, EIP keeps its ~$3.65/mo IPv4 charge).
+  Saves ~$30/mo. No IAM instance profile — not SSM-manageable.
+- No unattached EBS volumes, no unassociated EIPs, no other regions in use.
 - `deploy_seolith_main_prod_postgres` shows in `docker volume ls -f
   dangling=true` on host-01 even though main-site prod runs — do NOT bulk
   `docker volume prune` without verifying each volume first.
-- Committed baseline is ~2×t3.large + 1×t3.medium ≈ $150/mo on-demand;
-  a 1-year Compute Savings Plan would cut that ~28% once the estate
-  settles.
+- Committed baseline was ~2×t3.large + 2×t3.medium ≈ $180/mo on-demand,
+  now ~$150/mo after orgqa-demo stop; a 1-year Compute Savings Plan would
+  cut that ~28% once the estate settles.
+
+## seolith.com zone notes (full inventory 2026-08-24)
+
+- `*.seolith.com` is a proxied CNAME → `workportal.seolith.com` (host-01).
+  Any unmatched subdomain serves the workportal app — likely intentional
+  tenant routing, but it means deleting an explicit record makes that
+  hostname fall through to workportal instead of 404ing. Do NOT delete
+  "stale" staging records (staging-apsis/eventkeep/sportmed/debug-dojo)
+  unless the wildcard is rethought first.
+- Subdomains hosted OUTSIDE the three known hosts: 34.239.73.154 serves
+  14 client sites (copperline, elowen, havenmark, ironpeak, lumessa,
+  northvent, onyxhaus, smartfight, terravine, vitalume, voltari, walkin
+  +admins); 3.222.183.150 (foxy, invoices); 3.214.251.135 (email-manager);
+  3.133.57.145 (ortho, platform-auth, platform-logs); 44.204.104.184
+  (admin-twbb); 18.218.248.26 (auth-new). None are in this AWS account's
+  running instances — audit where these live and what they cost.
+- `tesselith.seolith.com` CNAMEs to custom-domains.chatgpt.site.
+- `staging-hindi-buddy.seolith.com` explicit A record deleted 2026-08-24
+  (container retired; wildcard still answers it — see above).
