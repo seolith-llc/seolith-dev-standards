@@ -95,8 +95,14 @@ DONE:
   EC2 container `hindi-buddy-prod` on seolith-prod-app-host-02 RETIRED
   (docker compose down, /opt/seolith/prod-host02-static-batch/hindi-buddy).
 - `debugdojo.com` + `www` → debug-dojo Pages project (verified 2026-08-24,
-  asset hash + sw.js match). EC2 containers `debug-dojo-prod` and
-  `debug-dojo-auth-proxy` on prod-app-host-02 NOT yet retired.
+  asset hash + sw.js match). Also cut over: `debug-dojo.seolith.com` and
+  `staging.debugdojo.com` (staging lost its Google-auth gate — accepted; Pages
+  has no auth gating). EC2 containers retired: `debug-dojo-prod` +
+  `debug-dojo-auth-proxy` on prod-app-host-02, AND `debug-dojo-staging` +
+  `debug-dojo-auth-proxy-staging` on **seolith-staging-app-host-01**
+  (i-072321eac21205fcf, 18.190.201.241 — a second, staging-dedicated host
+  discovered during this cutover; it runs ~40 staging containers plus shared
+  infra: Authentik, Seq, Vault, Dozzle, Traefik).
 
 TODO (origin confirmed EC2 by asset-hash fingerprint 2026-08-23):
 `staging-tamil-letters.seolith.com` → learn-tamil-letters (EC2 container
