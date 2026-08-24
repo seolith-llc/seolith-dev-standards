@@ -114,12 +114,28 @@ DONE:
   this repo is the static mirror). The real `pcihvac.com` does not resolve at
   all — assigning it to the Pages project is an open decision.
 
-TODO: `seolith.com` (+www) → seolith-next-gen-site (PRODUCT DECISION NEEDED:
-live is an older Angular app — container `seolith-main-prod-web` on
-prod-app-host-02 — and the Pages build is the new static redesign).
-Remaining Pages projects (refsite-01..10, critter-path-adventures, praiseit,
-vroom-boom-buggies) have no known production domains yet — cut over if/when
-domains are assigned.
+- `seolith.com` + `www.seolith.com` → seolith-next-gen-site Pages project
+  (cut over 2026-08-24, verified: new title on both hostnames, 5 service
+  pages + /privacy 200, lead form E2E through Pages Function →
+  `main-site.seolith.com` → .NET API → Postgres returned the upstream
+  success string, honeypot fake-succeeds, GA property G-DLRJ1TKJRV
+  unchanged). API continuity: the .NET MainSite API is Host-agnostic, so
+  `main-site.seolith.com` was added to the `seolith-main-prod-web` Traefik
+  rule (repo `seolith-main-site` deploy/docker-compose.prod.yml, applied to
+  the live release on prod-app-host-02) and its A record still points at
+  3.14.169.232 — the Pages Function proxies there. Legacy redirects ported
+  to `public/_redirects`: WordPress paths (`/wp-json/*`, `/xmlrpc.php`,
+  `/wp-admin/*`, `/feed*`, `/hello-world/`, `/category/uncategorized/`) and
+  retired Angular sections (`/blog/*`, `/careers/*`) all 301 to `/`.
+  `site-admin.seolith.com` (oauth2-proxy admin console) untouched and still
+  on EC2 — the admin surface + Postgres remain the system of record for
+  leads/blog/jobs. `seolith-main-prod-web` now serves only the API and
+  admin proxy; its Angular statics are no longer public-facing but the
+  container stays up for /api + site-admin. Rollback: re-point apex/www A
+  records to 3.14.169.232.
+- Remaining Pages projects (refsite-01..10, critter-path-adventures, praiseit,
+  vroom-boom-buggies) have no known production domains yet — cut over if/when
+  domains are assigned.
 
 ## Cost model
 
