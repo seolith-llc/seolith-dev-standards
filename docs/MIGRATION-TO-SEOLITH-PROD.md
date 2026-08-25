@@ -232,6 +232,28 @@ runbook below. Soak at least 48h before terminating the source instance.
    (static org/repo secrets today; consider the github-oidc pattern from
    seolith-ops-control/infra/github-oidc). These pipelines BREAK when the
    laakansolutions account closes — do this before step 4.
+   STATUS 2026-08-25 — DONE except ECR:
+   - All deploys use GitHub OIDC (no static AWS keys in GitHub). OIDC
+     provider + all 10 deploy roles mirrored into seolith-prod (same
+     names, policies rewritten to new buckets/instance IDs);
+     `seolith-deploy-role-policy` managed policy copied; instance tags
+     copied to the new hosts (github-staging-deploy needs
+     Environment=staging, Role=app-host).
+   - Staging bucket `seolith-staging-backups-819168518599` created
+     (versioned, public-blocked) + synced (330 MB).
+   - Org secret AWS_DEPLOY_ROLE_ARN → github-staging-deploy in new
+     account; repo secrets AWS_TERRAFORM_ROLE_ARN (ops-control) and
+     AWS_OMNIFIELD_DEPLOY_ROLE_ARN (omnifield) updated.
+   - ~20 repos' workflows/scripts/fixtures repointed (bucket names,
+     role ARNs, instance IDs) and pushed; verified live — omnifield +
+     apps-showcase pipelines pushed artifacts to the NEW bucket on the
+     repoint commits themselves.
+   - REMAINING: ECR (6 github-ecr-push-* roles + repos push images to
+     laakansolutions ECR — decide: recreate repos in seolith-prod ECR
+     vs move to ghcr); seolith-shared BACKUP_AWS_* repo secrets still
+     hold old-account backup creds; seolith-ops-control infra/**.tf
+     needs a terraform plan (its state bucket stays in mgmt, org-scoped
+     bucket policy already covers seolith-prod).
 4. Close accounts: `aws organizations close-account` for amtocbot, then
    laakansolutions (90-day post-closure window; remove SSO assignments
    first). Keep seolithllc for management + billing only.
