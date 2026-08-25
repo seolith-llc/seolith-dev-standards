@@ -1,6 +1,41 @@
 # Migration: consolidate all hosting into the `seolith-prod` AWS account
 
-Status: **foundation complete, waves not started** (last updated 2026-08-24).
+Status: **Wave 1 complete** (last updated 2026-08-25).
+
+## Wave log
+
+- **Wave 1 (2026-08-25) — DONE.**
+  - `amtocsoft-staging` (quotzo staging, staging.quotzo.com — note: no
+    public DNS record exists; site was IP-only): amtocbot
+    i-0eeb5c0669181d03d STOPPED → seolith-prod i-0055fc33af719303d
+    (44.201.120.78, t4g.micro, us-east-1). AMI copy (unencrypted, shared
+    AMI + snapshot), all 4 containers verified healthy. New SG restricts
+    SSH to the admin IP (was 0.0.0.0/0).
+  - `seolith-mail` (Stalwart mail + email-manager UI): amtocbot
+    i-06b09a100510c354a STOPPED → seolith-prod i-05133115c203cdb87
+    (t4g.micro, us-east-1). **EIP 3.214.251.135 transferred** cross-account
+    (~2 min detachment, no DNS changes). Verified: ESMTP banner on :25,
+    IMAP/submission ports listening, email-manager.seolith.com 200 via CF.
+  - Sources: stop-before-terminate soak; terminate after ~1 quiet week,
+    then deregister migration AMIs/snapshots and schedule the temporary
+    CMK `alias/migration-cross-account` (076276bc-...-1a9598) for deletion.
+
+### Lessons baked into the runbook (from Wave 1)
+
+- Sharing an AMI is NOT enough — also `modify-snapshot-attribute` every
+  underlying snapshot, else target `copy-image` fails with "You do not
+  have permission to access the storage of this ami".
+- If the source volume's CMK policy is locked (auto-ebs keys lack an
+  enable-IAM statement — even admin gets PutKeyPolicy AccessDenied):
+  create a temporary migration CMK (enable-IAM + target-account
+  statement), `copy-snapshot --encrypted --kms-key-id <mig-key>`, then
+  `register-image` from the copy (copy arch/root-device/boot-mode from
+  the source AMI) and share that AMI + snapshot.
+- EIP transfer: source `enable-address-transfer` → (disassociate first if
+  attached — accept fails with InvalidTransfer.AddressAssociated) →
+  target `accept-address-transfer` → `associate-address`.
+- On Git Bash, `MSYS_NO_PATHCONV=1` or `/dev/sda1` gets mangled into a
+  Windows path in register-image.
 
 ## Why
 
