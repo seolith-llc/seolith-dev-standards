@@ -1,9 +1,32 @@
 # Migration: consolidate all hosting into the `seolith-prod` AWS account
 
-Status: **Waves 1–2 complete** (last updated 2026-08-25).
+Status: **Waves 1–3 complete** (last updated 2026-08-25).
 
 ## Wave log
 
+- **Wave 3 (2026-08-25) — DONE.**
+  - `seolith-platform-prod-app-host-01` (quotzo prod+staging, ceoguide,
+    authentik, traefik): mgmt i-0568fed3ba46ac6af STOPPED → seolith-prod
+    i-0d497eb322a9ef43f (t3.large, us-east-2, AMI ami-0585ba7fe0f41e03e).
+    Volumes were encrypted with a locked auto-ebs CMK, so snapshots were
+    re-encrypted via temp CMK `alias/migration-cross-account-use2`
+    (31853635-e17a-44fc-b514-b67b1bf723c0 in mgmt us-east-2 — schedule
+    for deletion at cleanup), copied in, and the AMI re-registered with
+    the two-volume layout (80 GB root + 100 GB /srv data, both gp3).
+    **EIP 18.218.248.26 transferred**. All 14 containers came up;
+    verified 200: amtocsoft.com, www.amtocsoft.com,
+    staging.amtocsoft.com, ceo-guide.amtocsoft.com,
+    auth-new.seolith.com (authentik needs ~5 min boot before it serves —
+    don't mistake its 404s for failure). New SG sg-03617ae08c7986ea0
+    keeps the CF-edge-only 80/443 posture; instance profile is
+    seolith-ssm-core (the old CF-dns-token SSM parameter grant is
+    unused — traefik gets CF_DNS_API_TOKEN from a local .env; ECR pull
+    unused — images are local).
+  - `amtocsoft-prod` (amtocbot i-0765bf4101fdb4717): **retired**, not
+    migrated. Legacy duplicate of the amtocsoft/ceoguide stack; nothing
+    in DNS pointed at it (auto-assigned IP), DBs ~8 MB each. Safety net:
+    final AMI archived as ami-08ec8183e7dba7eb0 in seolith-prod
+    us-east-1. Instance STOPPED; terminate after the soak week.
 - **Wave 2 (2026-08-25) — DONE.**
   - `seolith-apps` foxy/tax box: mgmt i-0ae1f2f7ef448c698 STOPPED →
     seolith-prod i-0cd3e9c8e52fc1caf (t3.medium, us-east-1). **EIP
