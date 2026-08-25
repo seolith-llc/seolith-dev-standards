@@ -1,9 +1,22 @@
 # Migration: consolidate all hosting into the `seolith-prod` AWS account
 
-Status: **Wave 1 complete** (last updated 2026-08-25).
+Status: **Waves 1–2 complete** (last updated 2026-08-25).
 
 ## Wave log
 
+- **Wave 2 (2026-08-25) — DONE.**
+  - `seolith-apps` foxy/tax box: mgmt i-0ae1f2f7ef448c698 STOPPED →
+    seolith-prod i-0cd3e9c8e52fc1caf (t3.medium, us-east-1). **EIP
+    3.222.183.150 transferred**. Verified foxy.seolith.com +
+    invoices.seolith.com 200. (Hosts the foxyinvoice + seolith-tax
+    api/worker/postgres stacks.)
+  - `seolith-apps` client-sites box: amtocbot i-04bee88d6e313fa2d
+    STOPPED → seolith-prod i-0f440b406dcbfa3c2 (t3.medium, us-east-1).
+    **EIP 34.239.73.154 transferred**. All 16 containers came up; all 12
+    client sites + 12 admin panels (copperline, elowen, havenmark,
+    ironpeak, lumessa, northvent, onyxhaus, smartfight, terravine,
+    vitalume, voltari, walkin) verified 200. New SG closes the old
+    SSH-open-to-world hole (22 → admin IP only).
 - **Wave 1 (2026-08-25) — DONE.**
   - `amtocsoft-staging` (quotzo staging, staging.quotzo.com — note: no
     public DNS record exists; site was IP-only): amtocbot
