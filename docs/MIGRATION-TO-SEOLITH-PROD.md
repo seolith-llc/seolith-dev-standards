@@ -204,13 +204,37 @@ runbook below. Soak at least 48h before terminating the source instance.
 
 1. SES: re-verify sending domains/identities in seolith-prod us-east-1
    (DKIM CNAMEs are already in Cloudflare zones — reissue there), update
-   SMTP creds on hosts (foxyinvoice, email-manager).
+   SMTP creds on hosts (foxyinvoice, email-manager). STATUS 2026-08-25:
+   production-access request submitted for seolith-prod us-east-1
+   (TRANSACTIONAL). Old account has 22 verified identities, many for
+   retired apps — only re-verify the ones attached to live apps
+   (~2 emails/day total volume; seolith.com mail is NOT in SES, it is
+   handled by the Stalwart box directly).
 2. S3: sync `seolith-prod-backups-478087977376` →
    `seolith-prod-backups-819168518599`; repoint offen/docker-volume-backup
-   configs on every host; keep the old bucket 90 days.
-3. Close accounts: `aws organizations close-account` for amtocbot, then
+   configs on every host; keep the old bucket 90 days. STATUS 2026-08-25:
+   full 13.4 GiB sync DONE. offen backups on prod-app-host-01 and
+   staging-app-host-01 repointed to the new bucket via scoped IAM user
+   `seolith-backup-writer` (keys in SSM Parameter Store
+   /seolith/backup-writer/*, pulled into each host's .env; compose
+   default bucket also changed). NOTE: offen v2 refuses the instance-role
+   chain when AWS_S3_BUCKET_NAME is set — static keys are required.
+   prod-app-host-02 has no S3 backup (cropfight uses local postgres
+   dumps). Root bucket problem found: host-01's offen backup was
+   targeting a nonexistent bucket `seolith-backups` — backups had been
+   silently broken; now fixed.
+3. CI deploy artifacts: ~15 repos reference the OLD bucket
+   `seolith-prod-backups-478087977376` in deploy workflows/scripts
+   (alex-lopez-va, lks-site-and-portal, seolith-apps-showcase,
+   seolith-crop-fight, seolith-omnifield, seolith-portal, seolith-shared,
+   seolith-touch-n-go, memorize-world + docs elsewhere). Each needs the
+   bucket name updated AND its AWS credentials repointed to seolith-prod
+   (static org/repo secrets today; consider the github-oidc pattern from
+   seolith-ops-control/infra/github-oidc). These pipelines BREAK when the
+   laakansolutions account closes — do this before step 4.
+4. Close accounts: `aws organizations close-account` for amtocbot, then
    laakansolutions (90-day post-closure window; remove SSO assignments
    first). Keep seolithllc for management + billing only.
-4. Buy a 1-year Compute Savings Plan in the org once the estate is stable
+5. Buy a 1-year Compute Savings Plan in the org once the estate is stable
    (~28% off the EC2 baseline).
-5. Update this file + HOSTING_CONSOLIDATION.md as waves complete.
+6. Update this file + HOSTING_CONSOLIDATION.md as waves complete.
