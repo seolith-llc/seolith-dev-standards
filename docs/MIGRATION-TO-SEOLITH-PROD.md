@@ -1,10 +1,10 @@
 # Migration: consolidate all hosting into the `seolith-prod` AWS account
 
-Status: **Waves 1–3 complete, Wave 4 in flight (2 of 3 done)** (last updated 2026-08-25).
+Status: **All 4 waves complete — all EC2 hosting now in seolith-prod** (last updated 2026-08-25).
 
 ## Wave log
 
-- **Wave 4 (2026-08-25) — IN FLIGHT.** All three laakansolutions docker
+- **Wave 4 (2026-08-25) — DONE.** All three laakansolutions docker
   hosts used the locked auto-ebs CMK 748b9907, so each went through the
   re-encrypt path via temp CMK `alias/migration-cross-account-use2`
   (6abc628b-321d-4aa6-81e5-a629a9cbda78 in laakansolutions us-east-2 —
@@ -23,6 +23,16 @@ Status: **Waves 1–3 complete, Wave 4 in flight (2 of 3 done)** (last updated 2
     pushed load to ~88 for ~10 min as all containers started at once —
     self-settled, expect the same on any mass-restart. Verified
     monetization.amtocsoft.com 200 via CF and direct origin.
+  - `seolith-prod-app-host-01`: i-049e358ee9ea8118a STOPPED → seolith-prod
+    i-071f712e63a7cc48a (t3.large, AMI ami-0eab7ff54ef98a802). **EIP
+    18.190.199.160 transferred.** 94/94 containers up — the 4
+    `seolith-ops-*-production` containers have restart policy `no` and
+    were running on the source, so they must be started manually after
+    every boot (start postgres+redis first, then api+pwa). Verified via
+    CF: workportal.seolith.com (wildcard target), omnifield.ai,
+    eventkeep.pro, refrilog.com, therewillbebugs.com, alexlopezva.com,
+    laakansolutions.com, secondchanceleads.ai, memorize.world all 200;
+    logs.seolith.com 401 (Seq auth prompt, correct).
 - **Wave 3 (2026-08-25) — DONE.**
   - `seolith-platform-prod-app-host-01` (quotzo prod+staging, ceoguide,
     authentik, traefik): mgmt i-0568fed3ba46ac6af STOPPED → seolith-prod
