@@ -1,9 +1,28 @@
 # Migration: consolidate all hosting into the `seolith-prod` AWS account
 
-Status: **Waves 1–3 complete** (last updated 2026-08-25).
+Status: **Waves 1–3 complete, Wave 4 in flight (2 of 3 done)** (last updated 2026-08-25).
 
 ## Wave log
 
+- **Wave 4 (2026-08-25) — IN FLIGHT.** All three laakansolutions docker
+  hosts used the locked auto-ebs CMK 748b9907, so each went through the
+  re-encrypt path via temp CMK `alias/migration-cross-account-use2`
+  (6abc628b-321d-4aa6-81e5-a629a9cbda78 in laakansolutions us-east-2 —
+  schedule for deletion at cleanup). All three launched on shared SG
+  sg-0ba28ba14e0aa9208 (80/443 world, 22 admin IP only) with the
+  seolith-ssm-core profile.
+  - `seolith-prod-app-host-02`: i-03186641877827f53 STOPPED → seolith-prod
+    i-0fbcfba178a28525f (t3.medium, AMI ami-0acea8372f2270b7b). **EIP
+    3.14.169.232 transferred.** 29/29 containers up — note
+    `chaipaani-postgres-1` has restart policy `no` and must be started
+    manually after every boot. Verified via CF: seolith.com, www + 10 app
+    subdomains 200.
+  - `seolith-staging-app-host-01`: i-072321eac21205fcf STOPPED →
+    seolith-prod i-0d58443fdfb18503c (t3.large, AMI ami-0c66de97b3191e845).
+    **EIP 18.190.201.241 transferred.** 82/82 containers up. Boot storm
+    pushed load to ~88 for ~10 min as all containers started at once —
+    self-settled, expect the same on any mass-restart. Verified
+    monetization.amtocsoft.com 200 via CF and direct origin.
 - **Wave 3 (2026-08-25) — DONE.**
   - `seolith-platform-prod-app-host-01` (quotzo prod+staging, ceoguide,
     authentik, traefik): mgmt i-0568fed3ba46ac6af STOPPED → seolith-prod
