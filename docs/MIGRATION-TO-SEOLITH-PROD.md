@@ -81,9 +81,24 @@ Status: **All 4 waves complete — all EC2 hosting now in seolith-prod** (last u
     (t4g.micro, us-east-1). **EIP 3.214.251.135 transferred** cross-account
     (~2 min detachment, no DNS changes). Verified: ESMTP banner on :25,
     IMAP/submission ports listening, email-manager.seolith.com 200 via CF.
-  - Sources: stop-before-terminate soak; terminate after ~1 quiet week,
-    then deregister migration AMIs/snapshots and schedule the temporary
-    CMK `alias/migration-cross-account` (076276bc-...-1a9598) for deletion.
+  - Soak cleanup DONE 2026-08-26 (ahead of the ~Sep 1 cutoff): all 9
+    source instances terminated (amtocsoft-prod, seolith-mail,
+    amtocsoft-staging, seolith-apps client-sites in amtocbot;
+    seolith-apps foxy/tax + platform host in mgmt; prod-app-host-01/02 +
+    staging-app-host-01 in laakansolutions — orgqa-demo i-0b91d234c8b8ce97b
+    deliberately kept, pending owner confirmation). 11 migration AMIs
+    deregistered across the 3 old accounts with 12 AMI snapshots deleted,
+    plus 5 leftover re-encrypted snapshots, the mgmt DLM policy
+    (policy-0faa6d345f4395350) + its 6 stale snapshots, and orphaned
+    platform data volume vol-0088ac52057fda8c6. All 3 temp migration CMKs
+    (mgmt 31853635, amtocbot 076276bc, laakansolutions 6abc628b alias
+    migration-cross-account-use2) are PendingDeletion ~2026-09-01. All 7
+    EIP address-transfers show `accepted` (complete). Cross-account
+    leftovers removed: 5 AllowCrossAccountPull repo policies on amtocbot
+    ECR + migration-sync bucket policies on the two old
+    seolith-{prod,staging}-backups-478087977376 buckets. Rollback AMIs
+    retained in seolith-prod (incl. archive-amtocsoft-prod-final
+    ami-08ec8183e7dba7eb0).
 
 ### Lessons baked into the runbook (from Wave 1)
 
