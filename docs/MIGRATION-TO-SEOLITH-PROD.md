@@ -99,6 +99,51 @@ Status: **All 4 waves complete — all EC2 hosting now in seolith-prod** (last u
     seolith-{prod,staging}-backups-478087977376 buckets. Rollback AMIs
     retained in seolith-prod (incl. archive-amtocsoft-prod-final
     ami-08ec8183e7dba7eb0).
+  - **RDS/ElastiCache retired (not migrated) 2026-08-26** — owner decision:
+    no managed-database spend. Data moved into the hosts' existing local
+    postgres containers, then all managed stores deleted:
+    - `omnifield-prod-pg` (PG15) → `omnifield-db` container on
+      prod-app-host-01; `.env` `DB_HOST=db`; roles `omnifield_app` +
+      `omnifield_master` recreated with original passwords; grants applied.
+      platform.omnifield.ai + api health verified 200.
+    - `omnifield-staging-pg` (PG15) → `omnifield-staging-db` container.
+      NOTE: this RDS sat in the un-peered 10.43 VPC and had been
+      **unreachable since the EC2 migration** (root cause of the staging
+      deploy failures). Restored via temp RDS `omnifield-staging-temp`
+      (snapshot share → copy → restore → pg_dump → deleted after).
+      Staging APIs healthy after repoint.
+    - `seolith-prod-shared-postgres` (PG17) → retired. Its live consumer
+      was **appshowcase** (creds were in Secrets Manager, not container
+      env — that's why the container sweeps missed it); `appshowcase` DB
+      moved to the `appshowcase-postgres` container, compose conn string
+      now `Host=db` + `Ssl Mode=Prefer`. Its `seolith_portal` database
+      was stale (portal actually uses its local `seolith-portal-db`
+      container, `Host=postgres`); archived anyway.
+    - `seolith-prod-shared-redis` (ElastiCache, both the laakansolutions
+      original AND the replacement briefly created in seolith-prod) →
+      retired. Portal now uses a dedicated local container
+      `seolith-portal-redis` (redis:7-alpine, appendonly, network
+      portal-internal). `Cache__RedisConnectionString` updated live and
+      in `Deploy-PortalDirectEc2.ps1` + portal `.env` for future deploys.
+      portal.seolith.com verified 200, container healthy.
+    - Archives: pg_dumps of all four databases in
+      `s3://seolith-prod-backups-819168518599/db-backups/migration-20260826/`.
+      All 6 migration snapshots deleted; RDS deletion protection disabled
+      then instances deleted (skip-final-snapshot — dumps are the archive).
+    - Also cleaned: temp CMK afeb998f (PendingDeletion), VPC peering
+      pcx-025e35c3a048557ef, seolith-prod db/cache subnet groups + the 2
+      temporary SGs, seolith-migration-secret-read inline policy on
+      seolith-ssm-core, and `omnifield-db-backup.sh` on both app hosts
+      repointed to the new backups bucket.
+    - Master passwords live in Secrets Manager (seolith-prod):
+      `omnifield/{prod,staging}/rds-master-password`,
+      `seolith/prod/shared-postgres/rds-master`.
+    - Loose ends: `appshowcase-admin-auth-proxy` (oauth2-proxy) was
+      already crash-looping (1100+ restarts) before this work — not
+      caused by the migration, needs its own fix. Stale Secrets Manager
+      entries `seolith/prod/shared-postgres/{appshowcase,seolith_portal}`
+      still describe the deleted RDS — apps don't read them at runtime;
+      remove during the secrets cleanup.
 
 ### Lessons baked into the runbook (from Wave 1)
 
