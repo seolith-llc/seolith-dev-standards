@@ -248,12 +248,25 @@ runbook below. Soak at least 48h before terminating the source instance.
      role ARNs, instance IDs) and pushed; verified live — omnifield +
      apps-showcase pipelines pushed artifacts to the NEW bucket on the
      repoint commits themselves.
-   - REMAINING: ECR (6 github-ecr-push-* roles + repos push images to
-     laakansolutions ECR — decide: recreate repos in seolith-prod ECR
-     vs move to ghcr); seolith-shared BACKUP_AWS_* repo secrets still
-     hold old-account backup creds; seolith-ops-control infra/**.tf
-     needs a terraform plan (its state bucket stays in mgmt, org-scoped
-     bucket policy already covers seolith-prod).
+   - ECR — DONE 2026-08-25: ECR stays (no ghcr move). Repos created in
+     seolith-prod: walk-in + walk-in-migrator + fishbowl-{app,api,site}
+     (us-east-1) and seolith/{ceo-guide-api,ceo-guide-web,
+     clinical-trial-api,clinical-trial-frontend,crop-fight-api,
+     crop-fight-web,lumi-api,lumi-web,pto-admin-api,pto-admin-web,
+     touch-n-go-app} (us-east-2). Current images copied from amtocbot
+     ECR via cross-account repo policy. walk-in compose on the
+     client-sites box repointed to the new registry (ECR_REGISTRY +
+     IMAGE_TAG pinned in /opt/walk-in/.env; site verified 200). All 6
+     github-ecr-push-* roles mirrored and their per-repo
+     AWS_ECR_PUSH_ROLE_ARN secrets updated. fishbowl images copied as
+     insurance (app dormant). seolith-fishbowl repo still references
+     amtocbot ECR in deploy scripts — dormant, fix if fishbowl revives.
+   - seolith-shared BACKUP_AWS_* repo secrets rotated to
+     seolith-backup-writer + new bucket (would otherwise have
+     overwritten the fixed host .env on next deploy).
+   - STILL REMAINING: seolith-ops-control infra/**.tf needs a terraform
+     plan (state bucket stays in mgmt; org-scoped bucket policy already
+     covers seolith-prod).
 4. Close accounts: `aws organizations close-account` for amtocbot, then
    laakansolutions (90-day post-closure window; remove SSO assignments
    first). Keep seolithllc for management + billing only.
