@@ -59,7 +59,7 @@ jobs:
         run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: ${{ inputs.node-version }}
           registry-url: https://npm.pkg.github.com
