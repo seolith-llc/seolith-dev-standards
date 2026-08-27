@@ -260,6 +260,69 @@ runbook below. Soak at least 48h before terminating the source instance.
   API before cutting over.
 - After all three move: nothing stateful remains in laakansolutions.
 
+## Wave 5 notes (2026-08-26/27 — old-account retirement + foxy/tax repair)
+
+- **laakansolutions 478087977376**: emptied. 8 buckets deleted
+  (`alexlopezva-audit-478087977376` survives until closure — Object Lock
+  COMPLIANCE 7-year, undeletable by design; dies with the account). 11 ECR
+  repos, 6 SGs, 3 RDS subnet groups deleted. All 8 Secrets Manager entries
+  verified migrated (values hash-identical). The two leaked
+  `seolith.com@gmail.com` admin keys were already gone. Stale
+  AWS_ACCESS_KEY_ID/SECRET repo secrets swept from seolith-omnifield,
+  pci-autobot, seolith-ui-2026. orgqa-demo was terminated by its owner.
+  Zero instances/ENIs/volumes/snapshots remain.
+- **identity-center applied**: SSO assignments now exist only for
+  seolith-prod + mgmt. Old-account CLI access is via temporary admin
+  assignments (cleanup step before closure).
+- **Terraform reconciled** (seolith-ops-control): github-oidc + ecr
+  stacks retargeted to 819168518599, all hand-built resources imported,
+  plans clean. ECR hardened live: all 11 repos IMMUTABLE + scan-on-push +
+  lifecycle (untagged 1d, keep 10). environments/prod + staging retired
+  (would build duplicate hosts). infra/README.md rewritten.
+- **github-staging-deploy trust**: added GitHub *immutable* OIDC subject
+  (`repo:org@ORG_ID/repo@REPO_ID`) for seolith-money-app — repos created
+  after GitHub's rollout can't use the classic sub (CloudTrail-verified).
+  New repos will each need a `staging_deploy_subjects_extra` entry.
+- **money-app CI wired**: repo vars + AWS_ROLE_ARN set; deploy-staging.yml
+  works once `jq` is installed on the NUC runner (fleet template requires
+  it; NUC lacks it).
+- **Foxy/tax repair** (seolith-apps-foxy, us-east-1): the wave moved
+  compute but left the apps pointing at amtocbot buckets + broken IAM.
+  Fixed: new buckets foxyinvoice-{pdfs,inbound}-819,
+  seolith-tax-{pdfs,inbound,backups}-819 in seolith-prod (all
+  public-blocked, SSE, backups get 30-day lifecycle); contents synced from
+  amtocbot + the mgmt `-875` buckets (deleted after). Dedicated instance
+  role `seolith-apps-foxy-role` (SSM + scoped S3 + pre-staged
+  ses:SendEmail for hello@/invoices@seolith.com) replaced the shared
+  seolith-ssm-core on the box. fox-api + tax-api env repointed, static
+  AWS keys removed from tax-api (SDK now uses the instance role), both
+  recreated and healthy; all three sites 200. DB backup cron installed
+  (tax daily 02:00 UTC + hourly, fox daily 02:30) — first verified backups
+  since 08-24 uploaded via instance role. NOTE: tax-api SES SMTP still
+  uses the amtocbot `seolith-tax-ses-sender` key — dies at closure; swap
+  in the SES phase.
+- **Client-sites box** (seolith-apps-clients): pg-backup.sh had been
+  failing since 08-25 (pointed at amtocbot bucket) — dumps ran then were
+  deleted, i.e. ZERO client DB backups for 2 days. Repointed to
+  seolith-prod-backups-819168518599/pg/ and verified (all db_* uploaded).
+  Stale foxy/tax cron files removed from this box.
+- **SES prep**: identities seolith.com + foxyinvoice.com created in
+  seolith-prod us-east-1 (unverified; DKIM CNAMEs below, pending
+  Cloudflare). amtocbot SES is the ONLY account with production access —
+  it cannot close until seolith-prod SES is approved (request in review)
+  and domains/SMTP/receipt-rules move. seolith-tax-inbound (amtocbot)
+  stays until then — it is the live target of the payments@seolith.com
+  receipt rule.
+
+Pending DKIM records (Cloudflare, both zones):
+  seolith.com:   3 CNAMEs <token>._domainkey.seolith.com →
+                 <token>.dkim.amazonses.com, tokens in SES console /
+                 `aws sesv2 get-email-identity --email-identity seolith.com`
+  foxyinvoice.com: same pattern.
+  Then: verify, move payments@seolith.com receipt rule →
+  seolith-tax-inbound-819, create SMTP user, swap app creds, delete
+  amtocbot receipt rule + seolith-tax-inbound bucket.
+
 ## Tail
 
 1. SES: re-verify sending domains/identities in seolith-prod us-east-1
