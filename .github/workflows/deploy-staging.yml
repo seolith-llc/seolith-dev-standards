@@ -95,7 +95,7 @@ on:
         default: ""
       ecr-registry:
         description: >-
-          e.g. 478087977376.dkr.ecr.us-east-2.amazonaws.com. When set the host
+          e.g. 819168518599.dkr.ecr.us-east-2.amazonaws.com. When set the host
           logs in with `aws ecr get-login-password` via its instance role (no
           stored secret), the pull becomes fatal on failure, and the token is
           discarded with `docker logout` afterwards.
