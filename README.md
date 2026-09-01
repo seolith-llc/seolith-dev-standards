@@ -12,6 +12,7 @@ Centralized hub for ecosystem standards: DevContainers, CI/CD templates, Linting
 - [Branch hygiene](docs/BRANCH_HYGIENE.md)
 - [CI/CD standard](docs/CI_CD_STANDARD.md)
 - [Common services standard](docs/COMMON_SERVICES_STANDARD.md)
+- [Estate convergence plan](docs/CONVERGENCE_PLAN.md) — 2026-09-01 adoption audit + wave-ordered plan to retire duplicated auth/mail/logging across the fleet
 - [Deployment inventory](docs/DEPLOYMENT_INVENTORY.md)
 - [PWA launch checklist](docs/PWA_LAUNCH_CHECKLIST.md)
 - [Observability standard](docs/OBSERVABILITY_STANDARD.md)
