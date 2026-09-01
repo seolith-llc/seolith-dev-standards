@@ -1,0 +1,94 @@
+# Estate Convergence Plan
+
+Audit of the seolith-llc estate, 2026-09-01 (35+ repos, all pulled to latest main).
+The shared platform exists — this plan is about **adoption** and removing duplicated
+implementations. Waves are ordered by leverage: cheapest mechanical wins first,
+risky identity migrations last.
+
+## Audit summary
+
+### Verdicts
+
+| Repo | Verdict | Key gaps |
+| --- | --- | --- |
+| seolith-portal | PARTIAL | Uses 5 Platform packages; custom JWT/Fido2 auth, custom mail, no Seq |
+| seolith-apps-showcase | PARTIAL | Authentik OIDC + standard health, but shadow local JWT/BCrypt login, custom mail, no Seq |
+| seolith-saas-template | CONFORMING | Reference stack; frontend auth is a deliberate stub |
+| seolith-platform | CONFORMING | Is the standard; gaps listed below |
+| seolith-sdk | CONFORMING | Is the JS standard |
+| seolith-hindi-buddy, seolith-learn-tamil-letters, critter-path-adventures | CONFORMING | ui-react adopted, pinned CI; single `/health` only |
+| beta-pcihvac.seolith.com | PARTIAL | CI conforming; **contact form posts to a nonexistent API** — losing leads |
+| seolith-next-gen-site | CONFORMING | Static; lead capture correctly delegated to main-site |
+| seolith-eventkeep | PARTIAL | Authentik hand-wired (not Platform.Auth), no Seq, no mail, leftover Keycloak artifacts |
+| seolith-twbb | PARTIAL | Authentik hand-wired, MockEmailService, no Seq, missing secret-scan |
+| seolith-main-site | PARTIAL | oauth2-proxy header trust, custom audit, stale CI pin v1.0.2, no secret-scan |
+| seolith-money-app | CUSTOM | Magic-link + cookie auth, custom email trio, no Serilog at all |
+| amtocsoft-ceo-guide | CUSTOM | Custom magic-link JWT, custom SES sender, no Serilog |
+| seolith-tax-manager | CUSTOM | Argon2+JWT+TOTP custom identity, email senders copy-pasted from money-app |
+| seolith-omnifield | CUSTOM | Custom JWT, custom EmailService, custom tenancy/rate-limit/audit; Seq is the one bright spot |
+| alex-lopez-va | CUSTOM | Authentik but largest hand-rolled infra surface (auth tree, 9-file audit, outbox, rate limit) |
+| pto-admin | CUSTOM | Fully custom symmetric JWT, custom email queue, no health checks, missing secret-scan |
+| amtoc-mailserver | CUSTOM | Keycloak (not Authentik), custom SMTP sender, logs to Postgres not Seq, fully custom CI |
+| seolith-email-manager | PARTIAL | Custom JWT (documented decision), no Serilog, missing secret-scan |
+| seolith-reference-sites | CUSTOM | Per-brand JWT ×10, local `@seolith/*` shadow packages instead of `@seolith-llc/*` SDK |
+| walk-in | CUSTOM | NextAuth credentials + JSON-file user store, dead SES dep, no CI gates |
+| debug-dojo-academy | CUSTOM | 52-file copy-pasted shadcn tree, Supabase auth, no gates, committed `.env` |
+| eyezen | CUSTOM | No CI at all, dead Supabase dep |
+| seolith-praiseit | PARTIAL | CI conforming but duplicate ci.yml; custom D1 analytics; no ui-react |
+| amtocsoft-www | CUSTOM | No CI, custom analytics beacons to a dead endpoint; consolidation candidate |
+| amtocsoft-content | N/A | Content repo; ~30 copy-paste image-gen scripts to consolidate |
+
+### Duplication clusters (delete targets)
+
+- **Self-issued JWT auth, 8 copies**: omnifield (`Core/JwtHelper.cs`), money-app, ceo-guide, tax-manager, portal, apps-showcase (shadow path), pto-admin, email-manager, reference-sites (×10 brands).
+- **Email senders, 7 copies**: omnifield `Services/EmailService.cs`, money-app + tax-manager `Email/{Smtp,Ses}EmailSender.cs` (near-identical), ceo-guide `SesMagicLinkSender.cs`, portal `NotificationService.cs`, alex-lopez-va inline SES, pto-admin `Infrastructure/Email/Class1.cs` (misnamed file).
+- **Hand-wired Authentik JwtBearer, 4 copies**: eventkeep, twbb, apps-showcase, alex-lopez-va.
+- **Hand-rolled Angular OIDC, 3 copies**: eventkeep, twbb, pto-admin (all `oidc-client-ts`) → `@seolith-llc/auth`.
+- **Audit subsystems, 4 copies**: alex-lopez-va `api/Audit/` (9 files), pto-admin, amtoc-mailserver, main-site.
+- **Duplicated workflow YAML**: ~2,600 active lines + ~950 in `legacy/` dirs (apps-showcase, eventkeep, pto-admin, critter-path).
+- **`regen-lockfile.yml`**: identical ~68-line file in 4+ repos → promote to a shared workflow.
+- **Health endpoint conventions**: `/health`, `/healthz`, `/api/health`, `/ready` — 5 variants; standard is `/health/live` + `/health/ready`.
+
+### Platform/SDK gaps to close (before mass adoption)
+
+- `Seolith.Platform.Mail` and `Documents` template layers are interface-only stubs.
+- `DatabaseHealthCheck` duplicated between HealthChecks and Telemetry packages — delete one.
+- No tests for Mail, Documents, HealthChecks, Cors, RateLimiting, ErrorHandling, Migration.
+- seolith-platform README stale (old versions, names wrong consumers, references superseded local-feed plan).
+- Two `@seolith-llc/*` publishers (seolith-sdk and seolith-platform/angular) — document who owns what.
+
+## Wave 0 — hygiene (no behavior change)
+
+1. Pin ALL repos to dev-standards workflows at **one tag: `v1.1.4`** (current pins range v1.0.0–v1.1.4, plus alex-lopez-va secret-scan on `@main` and main-site on stale `@v1.0.2`).
+2. Add missing `secret-scan.yml` / `security-gates.yml` to: seolith-omnifield (has inline gitleaks to remove), pto-admin, seolith-twbb, seolith-email-manager, seolith-main-site, walk-in, debug-dojo-academy, eyezen.
+3. Delete duplicate custom `ci.yml` alongside pinned `ci-standard.yml`: seolith-praiseit, critter-path-adventures.
+4. Purge `.github/workflows/legacy/` dirs: apps-showcase, eventkeep, pto-admin, critter-path-adventures.
+5. Promote `regen-lockfile.yml` to a shared dev-standards workflow.
+6. Platform gaps (above): dedupe DatabaseHealthCheck, fill Mail/Documents templates, backfill tests, fix README, write the "who publishes what" doc.
+
+## Wave 1 — mechanical adoption
+
+7. `Seolith.Platform.HealthChecks` + `Seolith.Platform.Telemetry` (Serilog→Seq) into every .NET API: omnifield, money-app, ceo-guide, tax-manager, apps-showcase, portal, eventkeep, pto-admin, twbb, alex-lopez-va, main-site, email-manager, amtoc-mailserver. Seq URL comes from environment config; verify events land in logs.seolith.com.
+8. Fill `Seolith.Platform.Mail` template renderer, then adopt it in the 7 custom sender sites. SMTP settings point at the shared Mailpit (dev/staging capture; prod relay via Mail Manager ingress in account 819168518599).
+
+## Wave 2 — auth convergence (Authentik via Platform.Auth + @seolith-llc/auth)
+
+9. Already-on-Authentik swaps: eventkeep, twbb, apps-showcase (delete the local JWT/BCrypt login path), alex-lopez-va (replace hand-rolled tree, keep break-glass).
+10. Self-issued-JWT migrations with account linking (live users — one at a time, feature-flagged): money-app, ceo-guide, tax-manager, pto-admin, portal, email-manager, reference-sites.
+11. Keycloak outliers → Authentik: amtoc-mailserver; remove Keycloak artifacts from eventkeep/twbb.
+
+## Wave 3 — stragglers and dead weight
+
+12. debug-dojo-academy: replace 52-file shadcn tree with `@seolith-llc/ui-react`; resolve committed `.env`.
+13. seolith-reference-sites: drop local `@seolith/*` packages, consume published `@seolith-llc/*`.
+14. gs-apsis-app: delete the 3 re-export shims.
+15. **beta-pcihvac contact form posts to a nonexistent `/api/contact`** — wire to a real lead endpoint (main-site `/api/site/leads` pattern) or remove the form. Losing leads today.
+16. amtocsoft-www: consolidate into main-site/next-gen-site or give it standard CI; analytics beacon endpoint is dead.
+17. walk-in: replace JSON-file user store + NextAuth with Authentik OIDC; remove dead SES dep; add CI gates.
+18. eyezen: add CI; remove dead Supabase dep.
+
+## Verification
+
+- Every touched repo: PR with green CI (gates + build/test), merged to main.
+- Wave 1+: after deploy, health endpoints respond on the standard paths and Seq shows the service's events.
+- This document updates as waves land; per-repo status lives in DEPLOYMENT_INVENTORY.md.
