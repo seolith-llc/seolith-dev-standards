@@ -85,7 +85,13 @@ jobs:
           fi
           git commit -m "chore: regenerate lockfile with @seolith-llc/* entries"
           git push -u origin chore/regen-lockfile --force
-          gh pr create --base main --head chore/regen-lockfile \
-            --title "chore: regenerate lockfile" \
-            --body "Regenerated in CI with packages:read so @seolith-llc/* resolves. Makes the npm ci lane green." \
-            || echo "PR may already exist"
+          # gh pr create fails (and previously failed SILENTLY behind || echo)
+          # when a merged/closed PR already exists for this branch. Reuse an
+          # open PR if one exists; otherwise surface the real error.
+          if gh pr list --head chore/regen-lockfile --state open --json number --jq 'length' | grep -q '^0$'; then
+            gh pr create --base main --head chore/regen-lockfile \
+              --title "chore: regenerate lockfile" \
+              --body "Regenerated in CI with packages:read so @seolith-llc/* resolves. Makes the npm ci lane green."
+          else
+            echo "open PR for chore/regen-lockfile already exists; branch updated"
+          fi
