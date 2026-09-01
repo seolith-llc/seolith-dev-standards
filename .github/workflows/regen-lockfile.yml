@@ -1,0 +1,91 @@
+name: Regenerate lockfile (reusable)
+
+# Shared one-shot maintenance workflow: refreshes package-lock.json on a
+# branch and opens a PR.
+#
+# WHY THIS EXISTS. The lockfile cannot be regenerated on a dev machine whose
+# token lacks read:packages (npm 401s on @seolith-llc/* from GitHub Packages),
+# and `npm ci` in CI needs the @seolith-llc/* entries present. The org PAT
+# (PACKAGES_READ_TOKEN) has packages:read, so CI can do what the laptop
+# cannot. GITHUB_TOKEN-opened PRs do not trigger CI runs -- close and reopen
+# the PR if you want the gates to execute on it.
+#
+# Callers: see the repos that previously carried a copy-pasted
+# regen-lockfile.yml (critter-path-adventures, seolith-hindi-buddy, ...).
+
+on:
+  workflow_call:
+    inputs:
+      project-path:
+        description: "Directory containing package.json (default: repo root)"
+        required: false
+        type: string
+        default: '.'
+      node-version:
+        required: false
+        type: string
+        default: '24'
+      runs-on:
+        required: false
+        type: string
+        default: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
+    secrets:
+      PACKAGES_READ_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  regen:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      packages: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@seolith-llc'
+
+      - name: Regenerate lockfile
+        working-directory: ${{ inputs.project-path }}
+        env:
+          # PACKAGES_READ_TOKEN (org secret), not GITHUB_TOKEN: packages
+          # published by another repo's workflow are readable by a DIFFERENT
+          # repo's GITHUB_TOKEN only via per-package Actions-access grants
+          # (UI-only). The org PAT is the estate's existing pattern (the NuGet
+          # lane uses it the same way).
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+        run: |
+          # The project-level .npmrc shadows the root .npmrc setup-node
+          # wrote. npm expands ${NODE_AUTH_TOKEN} from the environment itself.
+          [ -f .npmrc ] || touch .npmrc
+          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' >> .npmrc
+          npm install --package-lock-only
+
+      - name: Push branch and open PR
+        working-directory: ${{ inputs.project-path }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "seolith-bot"
+          git config user.email "bot@seolith.com"
+          git checkout -b chore/regen-lockfile
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "lockfile unchanged; nothing to do"
+            exit 0
+          fi
+          git commit -m "chore: regenerate lockfile with @seolith-llc/* entries"
+          git push -u origin chore/regen-lockfile --force
+          gh pr create --base main --head chore/regen-lockfile \
+            --title "chore: regenerate lockfile" \
+            --body "Regenerated in CI with packages:read so @seolith-llc/* resolves. Makes the npm ci lane green." \
+            || echo "PR may already exist"
