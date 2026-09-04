@@ -87,6 +87,31 @@ risky identity migrations last.
 17. walk-in: replace JSON-file user store + NextAuth with Authentik OIDC; remove dead SES dep; add CI gates.
 18. eyezen: add CI; remove dead Supabase dep.
 
+## Status log
+
+### 2026-09-04
+
+- Wave 0: complete — all 19 active repos pinned to shared workflows, secret-scan/security-gates
+  everywhere, legacy workflow dirs purged, `regen-lockfile.yml` promoted to dev-standards.
+- Wave 0 platform gaps: DatabaseHealthCheck deduped, package tests backfilled, README refreshed
+  (seolith-platform #69). Mail/Documents template layers still stubs — Mail completion in flight.
+- Wave 1 HealthChecks + Telemetry: **13/13 repos on main** (money-app was already merged by
+  seolithcomgh as #76). Post-merge fallout fixed and merged: seolith-eventkeep#93 (BuildKit-secret
+  feed auth for in-container restore), seolith-omnifield#349 (`.dockerignore` + `dotnet publish
+  --no-restore`), seolith-apps-showcase#109 (mask OIDC AWS creds in GITHUB_ENV),
+  alex-lopez-va#72 (operational-contract gate accepts `MapSeolithHealthEndpoints`).
+- Org secret `PACKAGES_READ_TOKEN` granted to all consuming repos (was the cause of several
+  red CI runs with 403 feed errors).
+- seolith-money-app#77: Testcontainers flake root-caused (Docker Desktop port proxy severs
+  idle pooled Npgsql connections) and fixed via `Pooling=false` test helper; merged.
+- amtoc-mailserver#44: dead SSH deploy (SG allows only a stale home IP; box actually runs
+  seolith-email-manager) gated to `workflow_dispatch`; product retire-vs-SSM decision pending.
+- Known red: amtocsoft-ceo-guide main deploy — `ssh-keyscan` to the prod box fails from the
+  self-hosted runner (host unreachable on :22; SG/instance check in progress).
+- Blocked: seolith-portal deploy waits on `Seolith.Platform.Telemetry` nupkg upload to
+  `s3://seolith-prod-backups-819168518599/shared-nuget/seolith-platform/1.0.0/`.
+- Platform packages publish `1.0.<run_number>` on main push; consumers float `1.0.*`.
+
 ## Verification
 
 - Every touched repo: PR with green CI (gates + build/test), merged to main.
