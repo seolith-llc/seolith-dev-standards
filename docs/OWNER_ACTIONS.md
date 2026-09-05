@@ -74,8 +74,10 @@ Also needed at cutover time: `Auth__ClientSecret` for money-app in the host `.en
 (only app that needs one — it's the cookie/PKCE flow).
 
 Note: money-app currently has NO production deploy pipeline (only a manual
-staging deploy); monetization.amtocsoft.com appears to run from the staging host.
-Productionalizing it is a separate task — flag if you want it prioritized.
+staging deploy); monetization.amtocsoft.com is CONFIRMED to run on the staging
+host (its A record 18.190.201.241 is the staging box — same IP as all
+staging-*.seolith.com records). Productionalizing it (move to prod-01 + real
+pipeline, or formally accept staging-host hosting) is a separate decision.
 
 ## 4. walk-in: cut over from the mystery legacy box
 
