@@ -71,6 +71,10 @@ If that password was reused anywhere, rotate it.
 - **admin.therewillbebugs.com**: no DNS record exists (traefik labels reference it;
   admin works via twbb.seolith.com/admin). Add the record in the therewillbebugs.com
   Cloudflare zone or let me clean up the stale labels.
+- **eyezen.app deploys via Vercel git integration** (not our CI). The serwist
+  migration merged 2026-09-05; the Vercel build for that commit sat "queued" for
+  25+ minutes and `/sw.js` still serves the old redirect fallback. If it stays
+  stuck, check the project in the Vercel dashboard (or hand me a Vercel token).
 - **main-site pipeline**: the stack on prod-01 currently runs the June 3 build.
   Deploying current main needs the deploy workflow's GitHub Environment configured
   (it wants a TELEGRAM_BOT_TOKEN/CHAT_ID for notifications — send me those, or I can
