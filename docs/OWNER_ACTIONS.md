@@ -86,10 +86,13 @@ If that password was reused anywhere, rotate it.
   migration merged 2026-09-05; the Vercel build for that commit sat "queued" for
   25+ minutes and `/sw.js` still serves the old redirect fallback. If it stays
   stuck, check the project in the Vercel dashboard (or hand me a Vercel token).
-- **main-site pipeline**: the stack on prod-01 currently runs the June 3 build.
-  Deploying current main needs the deploy workflow's GitHub Environment configured
-  (it wants a TELEGRAM_BOT_TOKEN/CHAT_ID for notifications — send me those, or I can
-  strip the Telegram step and wire it without).
+- **main-site pipeline — ready, one click**: the blocker wasn't Telegram (that step
+  already skips gracefully); the `production` GitHub Environment pointed at the OLD
+  AWS account (bucket 478087977376, dead instance). Rewired 2026-09-05: new role
+  `github-ssm-deploy-main-site`, bucket/instance/DEPLOY_PATH now target prod-01, and
+  seolith-main-site#52 pinned the compose project so the pipeline adopts the live
+  stack. To deploy current main (the live site runs the June 3 build): Actions →
+  Deploy production → Run workflow.
 - **money-app productionalizing** (decision, not urgent): monetization.amtocsoft.com
   is confirmed to run on the staging host with a manual deploy pipeline. Move it to
   prod-01 with a real pipeline, or formally accept staging-host hosting.
