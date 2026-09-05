@@ -262,6 +262,10 @@ risky identity migrations last.
   across compose projects `ssi`/`shared` causing name-conflict recreate failures —
   unified under `shared`; seolith-shared#99 env-gated the localhost host rules that
   spammed ACME 400s.
+- Issuer-coverage sweep: probed every `application/o/<slug>` the estate's code
+  expects. `twbb` was missing (twbb#83's frontend uses public client `twbb-web`,
+  redirect <origin>/login) — registered it on the live instance; `twbb-staging`
+  already existed on staging-auth.seolith.com. All expected issuers now serve 200.
 
 ## Verification
 
