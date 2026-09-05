@@ -243,6 +243,25 @@ risky identity migrations last.
 - Corrected an OWNER_ACTIONS assumption: only portal/eventkeep/app-showcase were
   actually registered before today — ceo-guide/tax-manager/pto-admin were "verify"
   items that turned out not to exist.
+- **main-site pipeline unblocked**: the `production` environment pointed at the OLD
+  AWS account (bucket 478087977376, dead instance id); Telegram was never the blocker
+  (that step already skips gracefully). Created role `github-ssm-deploy-main-site`,
+  rewired bucket/instance/DEPLOY_PATH to prod-01, pinned the compose project
+  (seolith-main-site#52) so the pipeline adopts the live stack. Dispatch is the
+  owner's deliberate click (the live site runs the June 3 build).
+- **Backup gap closed**: audit found only omnifield had daily DB dumps; the other
+  ~22 postgres containers on prod-01 (and everything on staging/platform-prod) had
+  none. seolith-shared#100 added scripts/pg-backup-all.sh (auto-discovers
+  postgres/postgis containers, pg_dumpall/pg_dump streamed to
+  s3://seolith-prod-backups-819168518599/db-backups/host/<container>/, 30-day
+  retention, cron 03:23 UTC); #101 added the non-superuser fallback
+  (alexlopezva-db). Installed and verified on all three boxes: prod-01 23/23,
+  staging 19/19, platform-prod 4/4.
+- Also fixed on prod-01 during the walk-in cutover: dead CLOUDFLARE_API_TOKEN in
+  traefik env (no certs issued for days), and the ssi stack's containers split
+  across compose projects `ssi`/`shared` causing name-conflict recreate failures —
+  unified under `shared`; seolith-shared#99 env-gated the localhost host rules that
+  spammed ACME 400s.
 
 ## Verification
 
