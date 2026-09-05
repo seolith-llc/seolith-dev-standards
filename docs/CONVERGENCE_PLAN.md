@@ -203,6 +203,47 @@ risky identity migrations last.
   18.190.201.241 (DNS-only, not one of the four managed boxes — identify the host
   before building the pipeline).
 
+### 2026-09-05 (cutovers)
+
+- **OWNER_ACTIONS #0 done**: POSTGRES_PASSWORD/AUTHENTIK_SECRET_KEY rotated on BOTH
+  authentik instances. Discovery during rotation: auth.seolith.com is served by the
+  prod-01 ssi stack (`seolith-authentik*`, project `shared`); the /srv/authentik stack
+  on platform-prod is a secondary instance. Both rotated; both verified healthy. On
+  prod-01 the server+worker containers were owned by compose project `ssi` while
+  db/redis were `shared` — a `compose up` name-conflict mid-rotation left the server
+  briefly stale; fixed by removing the stale containers and recreating under `shared`.
+  All sessions invalidated once, as planned.
+- **3b done via API, not UI**: found a non-expiring admin API token path
+  (`ak shell` mint on prod-01) and provisioned everything headlessly — groups
+  (seolith-prod-admins + 4 per-app admin groups), providers+applications for
+  ceo-guide, tax-manager, pto-admin, email-manager (bearer), money-app (confidential,
+  redirect monetization.amtocsoft.com), app-showcase-spa (PUBLIC PKCE client).
+  All 9 issuer discovery endpoints verified 200. akadmin added to seolith-prod-admins.
+- **walk-in cut over**: DNS flipped walkin.seolith.com → prod-01. Surfaced a dead
+  CF_DNS_API_TOKEN in prod-01 traefik (/opt/seolith/ssi/.env, CLOUDFLARE_API_TOKEN)
+  that had blocked ALL new cert issuance on the box for days (403/9109 + CF auth
+  lockouts); replaced with the working zone token, traefik recreated, cert issued,
+  https://walkin.seolith.com 200 verified. The legacy box 34.239.73.154 is now
+  out of the request path — retirement is an owner decision.
+- **money-app live on Authentik**: #81 fixed the staging deploy (NU1301 401s — the
+  workflow never passed PACKAGES_READ_TOKEN to the host build; org secret granted to
+  the repo and injected at deploy time like pto-admin). Redeployed with the auth
+  wiring + client secret; verified: /health 200, /api/auth/providers authentik:true,
+  /api/auth/authentik 302 → auth.seolith.com with client_id=money-app.
+- **apps-showcase SPA SSO live**: #117 fixed the frontend authority to
+  application/o/app-showcase-spa/ (the public client's per-provider issuer; the
+  merged #116 pointed at the confidential provider, which would have failed
+  issuer/client validation). Prod CD green; live bundle verified carrying the new
+  issuer. Interactive browser sign-in test remains with the owner.
+- **eventkeep prod cutover**: Deploy Production dispatched post-registration; green.
+  Verified: home 200, /health 200, protected route 401 with no/garbage token.
+- Smoke sweep after registrations: tax-manager invoices.seolith.com /healthz 200 +
+  garbage bearer → 401; pto-admin pto.seolith.com /health 200 + garbage → 401;
+  email-manager mail.seolith.com 401 wall + garbage → 401; ceo-guide ready 200.
+- Corrected an OWNER_ACTIONS assumption: only portal/eventkeep/app-showcase were
+  actually registered before today — ceo-guide/tax-manager/pto-admin were "verify"
+  items that turned out not to exist.
+
 ## Verification
 
 - Every touched repo: PR with green CI (gates + build/test), merged to main.
