@@ -1,7 +1,7 @@
 name: Regenerate lockfile (reusable)
 
-# Shared one-shot maintenance workflow: refreshes package-lock.json on a
-# branch and opens a PR.
+# Shared one-shot maintenance workflow: refreshes package-lock.json /
+# pnpm-lock.yaml / yarn.lock on a branch and opens a PR.
 #
 # WHY THIS EXISTS. The lockfile cannot be regenerated on a dev machine whose
 # token lacks read:packages (npm 401s on @seolith-llc/* from GitHub Packages),
@@ -63,11 +63,21 @@ jobs:
           # lane uses it the same way).
           NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
         run: |
+          set -euo pipefail
           # The project-level .npmrc shadows the root .npmrc setup-node
-          # wrote. npm expands ${NODE_AUTH_TOKEN} from the environment itself.
+          # wrote. npm/pnpm expand ${NODE_AUTH_TOKEN} from the environment itself.
           [ -f .npmrc ] || touch .npmrc
           echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' >> .npmrc
-          npm install --package-lock-only
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            corepack prepare --activate "$(node -p "require('./package.json').packageManager || 'pnpm@latest'")"
+            pnpm install --lockfile-only
+          elif [ -f yarn.lock ]; then
+            corepack enable
+            yarn install --mode update-lockfile
+          else
+            npm install --package-lock-only
+          fi
 
       - name: Push branch and open PR
         working-directory: ${{ inputs.project-path }}
@@ -78,7 +88,13 @@ jobs:
           git config user.name "seolith-bot"
           git config user.email "bot@seolith.com"
           git checkout -b chore/regen-lockfile
-          git add package-lock.json
+          if [ -f pnpm-lock.yaml ]; then
+            git add pnpm-lock.yaml
+          elif [ -f yarn.lock ]; then
+            git add yarn.lock
+          else
+            git add package-lock.json
+          fi
           if git diff --cached --quiet; then
             echo "lockfile unchanged; nothing to do"
             exit 0
