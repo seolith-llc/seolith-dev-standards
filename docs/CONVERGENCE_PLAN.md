@@ -173,6 +173,18 @@ risky identity migrations last.
 - PACKAGES_READ_TOKEN granted to debug-dojo-academy and seolith-reference-sites;
   regen-lockfile reusable workflow now handles pnpm-lock.yaml/yarn.lock (dev-standards#97);
   debug-dojo ui-react adoption (#6/#7) and reference-sites SDK adoption (#29/#30) merged.
+- W2 auth migrations (dual-scheme `AuthentikOrLocal` template from apps-showcase#115):
+  amtocsoft-ceo-guide#53 and seolith-tax-manager#85 merged AND deployed to prod
+  (ceo-guide `/api/ready` green; invoices+foxy 200 on root/health/login). tax-manager
+  notes: MediatR 12→14 forced by Platform.Auth; permission-claim model means Authentik
+  tokens are fail-closed until group→permission mapping lands with the frontend swap.
+  eventkeep#535 removed the Keycloak remnants (services, realm-export, nginx /auth/ proxy).
+  money-app/pto-admin/email-manager migrations in flight; portal is an ops cutover
+  (Authentik already enabled), not a code migration.
+- `/cp/v1/feedback` verdict: NOT broken — 401 on invalid key, 405 on GET (POST-only).
+  Needs a minted `cpk_` key for the e2e test (owner action).
+- walk-in serwist deploy green end-to-end (test → ECR push → SSM deploy on prod-01);
+  eyezen.app deploys via Vercel git integration (outside estate CI).
 
 ## Verification
 
