@@ -143,6 +143,37 @@ risky identity migrations last.
   no interactive docker commands in piped scripts, BuildKit `gh_packages_token` secret for
   box-built .NET images, OIDC roles over static AWS keys.
 
+### 2026-09-05 (evening)
+
+- **Leads intake is live**: the main-site stack (down since Jun 3) was revived on prod-01 with
+  its surviving `.env` and postgres volume; `POST https://api.seolith.com/api/site/leads`
+  returns 200 and rows record. Root cause of the long outage: `seolith.com` is the static
+  Pages marketing site (POSTs 405) and `api.seolith.com` was a placeholder nginx. Durable
+  config: seolith-main-site#51 (traefik PathPrefix router at priority 200 above the
+  placeholder + BuildKit feed auth). beta-pcihvac.seolith.com#33/#34 wire the (pre-launch)
+  Angular contact form to it. The LIVE beta-pcihvac WordPress form (MetForm) is confirmed
+  broken upstream (`401 Unauthorized submission`) — fix needs WP admin; migration is the way out.
+- **Public repos cannot consume the private shared workflows.** amtocsoft-www (the org's only
+  public repo) failed every reusable-workflow call at expansion (zero jobs, "workflow file
+  issue") against two dev-standards SHAs while identical callers pass from private repos.
+  It now runs repo-local gates (gitleaks CLI full-history + static hygiene) — amtocsoft-www#2.
+  If more repos go public: same treatment, or make dev-standards public.
+- W2 auth swaps merged: seolith-apps-showcase#115 (dual-scheme issuer forwarding — Authentik
+  bearer via Platform.Auth + legacy local JWTs during transition; break-glass = the existing
+  password login; group-claim shim with 7 tests). Follow-up recorded in the PR: frontend
+  oidc-client-ts swap, then delete local minting. Earlier: seolith-eventkeep#534 (committed
+  `EventKeep#Admin03` seeder killed; prod cutover is a manual dispatch pending Authentik
+  group assignment).
+- serwist migration done: eyezen#2, walk-in#13 — next-pwa 5.6 (dead since 2022) replaced by
+  @serwist/next 9.5.12; API routes are now strictly NetworkOnly in both service workers
+  (they were NetworkFirst-cached — a stale-data hazard). eyezen pins `next build --webpack`
+  until serwist#339 (Turbopack precache) is fixed.
+- pto-admin v2.8.0 shipped the convergence wave to prod (HealthChecks+Telemetry+Platform.Mail)
+  — deploy green, `/health` Healthy.
+- PACKAGES_READ_TOKEN granted to debug-dojo-academy and seolith-reference-sites;
+  regen-lockfile reusable workflow now handles pnpm-lock.yaml/yarn.lock (dev-standards#97);
+  debug-dojo ui-react adoption (#6/#7) and reference-sites SDK adoption (#29/#30) merged.
+
 ## Verification
 
 - Every touched repo: PR with green CI (gates + build/test), merged to main.
