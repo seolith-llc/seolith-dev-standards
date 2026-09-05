@@ -53,6 +53,30 @@ Authentik. Before I dispatch the production deploy:
 - The `eventkeep` Authentik application itself is confirmed registered and serving.
 Then tell me to dispatch; deploy is a deliberate manual action.
 
+## 3b. One Authentik admin session registers everything (W2 wave complete)
+
+All W2 auth migrations are merged. Do this in one sitting at
+https://auth.seolith.com (admin UI), then tell me to proceed with cutovers:
+
+| App | Provider slug + client | Redirect URI | Group to create |
+| --- | --- | --- | --- |
+| money-app | `money-app` | `https://monetization.amtocsoft.com/api/auth/authentik/callback` | — (uses `seolith-prod-admins`) |
+| pto-admin | `pto-admin` | (API bearer; confirm issuer URL serves) | `seolith-prod-pto-admin-admins` |
+| email-manager | `email-manager` (NEW) | (API bearer; confirm issuer URL serves) | `seolith-prod-email-manager-admins` |
+| ceo-guide | `ceo-guide` (verify exists) | (API bearer) | `seolith-prod-ceo-guide-admins` |
+| tax-manager | `tax-manager` (verify exists) | (API bearer) | `seolith-prod-tax-manager-admins` |
+
+For every app: make sure the provider emits the `groups` claim in tokens (property
+mapping). Estate operators belong in `seolith-prod-admins` (gets Admin everywhere;
+SuperAdmin in pto-admin/twbb by design).
+Already registered and confirmed: `eventkeep`, `portal`, `app-showcase`.
+Also needed at cutover time: `Auth__ClientSecret` for money-app in the host `.env`
+(only app that needs one — it's the cookie/PKCE flow).
+
+Note: money-app currently has NO production deploy pipeline (only a manual
+staging deploy); monetization.amtocsoft.com appears to run from the staging host.
+Productionalizing it is a separate task — flag if you want it prioritized.
+
 ## 4. walk-in: cut over from the mystery legacy box
 
 `walkin.seolith.com` still resolves to `34.239.73.154` — an unmanaged box OUTSIDE
