@@ -65,6 +65,7 @@ https://auth.seolith.com (admin UI), then tell me to proceed with cutovers:
 | email-manager | `email-manager` (NEW) | (API bearer; confirm issuer URL serves) | `seolith-prod-email-manager-admins` |
 | ceo-guide | `ceo-guide` (verify exists) | (API bearer) | `seolith-prod-ceo-guide-admins` |
 | tax-manager | `tax-manager` (verify exists) | (API bearer) | `seolith-prod-tax-manager-admins` |
+| app-showcase SPA | `app-showcase-spa` (NEW, **public** client — the existing `app-showcase` client is confidential/backend-only) | `https://apps.seolith.com/auth/callback` (+ `http://localhost:4200/auth/callback` for dev; add post-logout URIs) | — (uses `seolith-prod-admins` + app groups) |
 
 For every app: make sure the provider emits the `groups` claim in tokens (property
 mapping). Estate operators belong in `seolith-prod-admins` (gets Admin everywhere;
