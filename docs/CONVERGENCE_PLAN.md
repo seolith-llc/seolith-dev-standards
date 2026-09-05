@@ -112,6 +112,37 @@ risky identity migrations last.
   `s3://seolith-prod-backups-819168518599/shared-nuget/seolith-platform/1.0.0/`.
 - Platform packages publish `1.0.<run_number>` on main push; consumers float `1.0.*`.
 
+### 2026-09-05
+
+- Platform.Mail shipped (seolith-platform#73) and feed publish fixed (#74): all 14 packages at
+  1.0.26. Mail adoption merged **7/7**: money-app#79, tax-manager#83, portal#974, pto-admin#107,
+  amtocsoft-ceo-guide#48, alex-lopez-va#73 (+#74 npm audit), seolith-omnifield#368 (AWSSDK 3.x→4.x).
+- W2 first auth swap merged: seolith-twbb#83 — Platform.Auth + `GroupRoleClaimsTransformation`
+  (Authentik `seolith-prod-admins` → Admin/SuperAdmin); Keycloak purged.
+- Deploy pipelines converted from dead SSH to SSM + OIDC and proven green end-to-end:
+  amtocsoft-ceo-guide#46-#52 (run 33912681880), seolith-tax-manager#84, pto-admin#108
+  (v2.7.0 pipeline validation green), walk-in#12.
+- seolith-portal deploy pipeline root-caused through 11 attempts; fixes merged: #976 (vendored
+  NuGet 1.0.26, stale-cache poisoning), #977 (localhost in prod AllowedHosts for container
+  healthchecks), #978 (interactive `docker compose run` consumed the SSM-piped script from
+  stdin, silently ending deploys after the migrate step — now `-T < /dev/null`), #979 (comment
+  inserted between env-prefix continuation backslash and the command un-exported the compose
+  env), #980 (stale-router cleanup compared short vs full container ids and matched a greedy
+  router-name regex, removing the ACTIVE portal containers + omnifield containers + bos_api
+  post-deploy — now skips by name and matches only the exact `Host()` rule). Contract tests
+  pin every one of these regressions.
+- Estate OIDC discovery: some repos emit a customized subject claim
+  (`repo:seolith-llc@194135913/<repo>@<id>:*`). New deploy roles must trust BOTH the plain and
+  the custom sub format (walk-in needed it; pto-admin emits plain). `github-ssm-deploy-pto-admin`
+  and `github-ssm-deploy-walk-in` created with both patterns.
+- Seq ingestion verified on prod-01 (CLEF raw POST → 201); the query API is auth-protected
+  (good), UI spot-check outstanding.
+- bos_api (prod-01) was an orphaned container from a June one-off `/tmp` deploy — no compose
+  definition or image survives on the box; unrecoverable, presumed retired.
+- Deploy-lesson patterns now canonical for the estate: base64 script over SSM with tee-log,
+  no interactive docker commands in piped scripts, BuildKit `gh_packages_token` secret for
+  box-built .NET images, OIDC roles over static AWS keys.
+
 ## Verification
 
 - Every touched repo: PR with green CI (gates + build/test), merged to main.
