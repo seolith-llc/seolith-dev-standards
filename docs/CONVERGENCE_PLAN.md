@@ -186,6 +186,23 @@ risky identity migrations last.
 - walk-in serwist deploy green end-to-end (test → ECR push → SSM deploy on prod-01);
   eyezen.app deploys via Vercel git integration (outside estate CI).
 
+### 2026-09-05 (late)
+
+- **W2 code wave complete (8/8 apps)**: money-app#80 (cookie/PKCE variant — sessions
+  linked by email, no migration needed), pto-admin#109 (estate group → Admin+SuperAdmin),
+  seolith-email-manager#44 merged. ceo-guide#53 + tax-manager#85 already deployed and
+  prod-verified; pto-admin v2.9.0 deployed with the migration (inert until the Authentik
+  app is registered); email-manager images published for the next routine pull. All
+  cutover work is batched as one Authentik admin session in docs/OWNER_ACTIONS.md (3b).
+- Security: seolith-platform#75 deleted `docs/notes.md`, which held LIVE
+  POSTGRES_PASSWORD + AUTHENTIK_SECRET_KEY (predated the diff-only scan gate). Both
+  values remain in history and are queued for rotation (OWNER_ACTIONS #0). A full
+  ~240-repo `git grep` sweep for PASSWORD/SECRET_KEY/API_KEY-shaped values found only
+  placeholders and one CI dummy — the estate tree is otherwise clean.
+- money-app gap flagged: no production deploy pipeline; monetization.amtocsoft.com →
+  18.190.201.241 (DNS-only, not one of the four managed boxes — identify the host
+  before building the pipeline).
+
 ## Verification
 
 - Every touched repo: PR with green CI (gates + build/test), merged to main.
