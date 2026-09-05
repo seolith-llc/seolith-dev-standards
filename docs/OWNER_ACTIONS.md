@@ -4,6 +4,17 @@ Things the automation cannot do for you — each item has the exact steps. Order
 customer impact. Delete items as you complete them (or ask for a status refresh).
 Last updated: 2026-09-05.
 
+## 0. URGENT: rotate two secrets that lived on seolith-platform main
+
+`docs/notes.md` (deleted 2026-09-05 in seolith-platform#75) contained live
+`POSTGRES_PASSWORD` and `AUTHENTIK_SECRET_KEY` values. Deleting the file does
+NOT remove them from git history — both are compromised and must be rotated:
+- Postgres password for the authentik stack database on platform-prod.
+- Authentik `AUTHENTIK_SECRET_KEY` (rotating invalidates all Authentik sessions —
+  everyone logs in again once; plan for that).
+I can execute both rotations over SSM as soon as AWS SSO is re-authenticated
+(`aws sso login --profile sso-seolith-prod`) — say go.
+
 ## 1. WordPress contact form on beta-pcihvac.seolith.com is dead (losing leads TODAY)
 
 Evidence: the live WordPress MetForm endpoint
