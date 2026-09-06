@@ -85,7 +85,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.resolve-runner.outputs.runs-on) }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js for AgentShield
         uses: actions/setup-node@v7.0.0
