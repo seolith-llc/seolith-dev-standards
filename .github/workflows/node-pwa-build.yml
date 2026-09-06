@@ -35,7 +35,8 @@ on:
         default: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
       audit-level:
         required: false
-        type: string
+        type: choice
+        options: ["info", "low", "moderate", "high", "critical"]
         default: "high"
     secrets:
       PACKAGES_READ_TOKEN:
@@ -46,8 +47,39 @@ permissions:
   packages: read
 
 jobs:
+  # M6: runs-on is resolved before any step of the work job runs, so it
+  # cannot be validated from inside that job. This job runs on a fixed,
+  # non-caller-controlled label first and rejects any runs-on value not
+  # already proven safe -- closing "caller picks the machine" without
+  # changing behavior for any existing caller. Allow-list built from every
+  # runs-on override actually in use estate-wide as of 2026-09-06; add a new
+  # entry here deliberately if a new pool genuinely needs one.
+  resolve-runner:
+    runs-on: [self-hosted]
+    permissions: {}
+    outputs:
+      runs-on: ${{ steps.validate.outputs.runs-on }}
+    steps:
+      - name: Validate requested runner label set
+        id: validate
+        shell: bash
+        env:
+          REQUESTED: ${{ inputs.runs-on }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED" in
+            '["self-hosted","Linux","X64","seolith-local","node-capable"]'|'["self-hosted","Windows","X64"]'|'["self-hosted","windows","x64"]')
+              ;;
+            *)
+              echo "::error::runs-on input '$REQUESTED' is not an approved label set for this workflow. A caller cannot redirect this job to an arbitrary runner -- add the new label set here deliberately if a new pool genuinely needs it."
+              exit 1
+              ;;
+          esac
+          printf 'runs-on=%s\n' "$REQUESTED" >> "$GITHUB_OUTPUT"
+
   build-and-validate:
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    needs: [resolve-runner]
+    runs-on: ${{ fromJSON(needs.resolve-runner.outputs.runs-on) }}
     timeout-minutes: 25
     env:
       NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
@@ -84,13 +116,30 @@ jobs:
         working-directory: ${{ inputs.project-path }}
 
       - name: Build
-        run: ${{ inputs.build-command }}
+        shell: pwsh
         working-directory: ${{ inputs.project-path }}
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: |
+          # Tokenize and invoke directly instead of letting the templated
+          # string stand as the whole script: a caller-supplied command is
+          # expected, but binding it via env first keeps the value out of the
+          # workflow's own text-substitution step (which runs before any
+          # shell parses this file).
+          $argv = @($env:BUILD_COMMAND -split '\s+' | Where-Object { $_ -ne '' })
+          if ($argv.Count -eq 0) { throw "build-command resolved to an empty command." }
+          $exe = $argv[0]
+          $rest = if ($argv.Count -gt 1) { $argv[1..($argv.Count - 1)] } else { @() }
+          & $exe @rest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Validate PWA assets
         shell: pwsh
+        env:
+          PROJECT_PATH: ${{ inputs.project-path }}
+          OUTPUT_PATH: ${{ inputs.output-path }}
         run: |
-          $output = Join-Path "${{ inputs.project-path }}" "${{ inputs.output-path }}"
+          $output = Join-Path $env:PROJECT_PATH $env:OUTPUT_PATH
           $manifestPath = Join-Path $output "manifest.webmanifest"
           if (-not (Test-Path $manifestPath)) {
             $manifestPath = Join-Path $output "manifest.json"
