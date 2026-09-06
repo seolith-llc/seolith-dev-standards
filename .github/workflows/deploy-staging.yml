@@ -184,8 +184,39 @@ permissions:
   id-token: write # required for OIDC
 
 jobs:
+  # M6: runs-on is resolved before any step of the work job runs, so it
+  # cannot be validated from inside that job. This job runs on a fixed,
+  # non-caller-controlled label first and rejects any runs-on value not
+  # already proven safe -- closing "caller picks the machine" without
+  # changing behavior for any existing caller. Allow-list built from every
+  # runs-on override actually in use estate-wide as of 2026-09-06; add a new
+  # entry here deliberately if a new pool genuinely needs one.
+  resolve-runner:
+    runs-on: [self-hosted]
+    permissions: {}
+    outputs:
+      runs-on: ${{ steps.validate.outputs.runs-on }}
+    steps:
+      - name: Validate requested runner label set
+        id: validate
+        shell: bash
+        env:
+          REQUESTED: ${{ inputs.runs-on }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED" in
+            '["self-hosted","Linux","X64","seolith-local","linux-build"]'|'["self-hosted","Linux","X64","seolith-local","always-on"]')
+              ;;
+            *)
+              echo "::error::runs-on input '$REQUESTED' is not an approved label set for this workflow. A caller cannot redirect this job to an arbitrary runner -- add the new label set here deliberately if a new pool genuinely needs it."
+              exit 1
+              ;;
+          esac
+          printf 'runs-on=%s\n' "$REQUESTED" >> "$GITHUB_OUTPUT"
+
   deploy:
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    needs: [resolve-runner]
+    runs-on: ${{ fromJSON(needs.resolve-runner.outputs.runs-on) }}
     timeout-minutes: 25
 
     steps:
