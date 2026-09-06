@@ -2,12 +2,23 @@
 
 Things the automation cannot do for you — each item has the exact steps. Ordered by
 customer impact. Delete items as you complete them (or ask for a status refresh).
-Last updated: 2026-09-05 (evening).
+Last updated: 2026-09-06.
 
 Completed 2026-09-05 and removed from this list: secret rotation (#0 — both Authentik
 instances), eventkeep prod cutover (#3), the Authentik registration session (#3b —
 done headlessly via the Authentik API), and the walk-in DNS cutover (#4 — see the
 legacy-box retirement question below).
+
+Completed 2026-09-06: **main-site pipeline** (was §7) — deploy run 34028227953 green,
+`seolith.com`/`www.seolith.com` → 200, `api.seolith.com/api/site/leads` → 405 (POST-only,
+correct). Two landmines fixed along the way, both now documented for any future
+box-build repo:
+- `gh secret set` with `echo` appends a trailing newline — the first deploy failed
+  on a poisoned `DEPLOY_PATH`. Always `printf '%s' 'value' | gh secret set …`.
+- Box builds that restore `Seolith.Platform.*` from GitHub Packages need
+  `GITHUB_PACKAGES_TOKEN=<read:packages PAT>` in the host `.env` — compose passes it
+  to BuildKit as the `gh_packages_token` secret. Now set on prod-01
+  (`/opt/seolith/prod/seolith-main-site/.env`).
 
 ## 1. WordPress contact form on beta-pcihvac.seolith.com is dead (losing leads TODAY)
 
@@ -86,13 +97,6 @@ If that password was reused anywhere, rotate it.
   migration merged 2026-09-05; the Vercel build for that commit sat "queued" for
   25+ minutes and `/sw.js` still serves the old redirect fallback. If it stays
   stuck, check the project in the Vercel dashboard (or hand me a Vercel token).
-- **main-site pipeline — ready, one click**: the blocker wasn't Telegram (that step
-  already skips gracefully); the `production` GitHub Environment pointed at the OLD
-  AWS account (bucket 478087977376, dead instance). Rewired 2026-09-05: new role
-  `github-ssm-deploy-main-site`, bucket/instance/DEPLOY_PATH now target prod-01, and
-  seolith-main-site#52 pinned the compose project so the pipeline adopts the live
-  stack. To deploy current main (the live site runs the June 3 build): Actions →
-  Deploy production → Run workflow.
 - **money-app productionalizing** (decision, not urgent): monetization.amtocsoft.com
   is confirmed to run on the staging host with a manual deploy pipeline. Move it to
   prod-01 with a real pipeline, or formally accept staging-host hosting.
