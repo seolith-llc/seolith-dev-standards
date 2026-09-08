@@ -95,7 +95,7 @@ jobs:
       NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
       NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Run AgentShield Security Scan
         run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate

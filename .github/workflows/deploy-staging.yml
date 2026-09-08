@@ -222,7 +222,7 @@ jobs:
     steps:
       # PIN THESE TO COMMIT SHAs BEFORE THE FIRST LIVE RUN -- see step 5 of the
       # rollout. This job holds OIDC credentials on a non-ephemeral runner.
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # ---------------------------------------------------------------------
       # Validate every caller-controlled input BEFORE it reaches a shell.

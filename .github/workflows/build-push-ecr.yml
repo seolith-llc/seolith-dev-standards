@@ -107,7 +107,7 @@ jobs:
         image: ${{ fromJSON(inputs.images) }}
 
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The runner is Docker Desktop under WSL2, so daemon availability is tied
       # to the Windows session. This gate is the difference between a clear
