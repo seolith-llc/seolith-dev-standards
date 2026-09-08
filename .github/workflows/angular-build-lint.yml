@@ -148,7 +148,7 @@ jobs:
       NPM_CONFIG_PROGRESS: "false"
       NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v7.0.0
