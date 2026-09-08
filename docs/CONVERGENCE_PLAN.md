@@ -267,6 +267,27 @@ risky identity migrations last.
   redirect <origin>/login) — registered it on the live instance; `twbb-staging`
   already existed on staging-auth.seolith.com. All expected issuers now serve 200.
 
+## Tester v1 adoption
+
+Added 2026-09-08 as a separate adoption track; the earlier audit and auth/mail
+waves above retain their dated scope. [Tester v1](TESTER_V1_STANDARD.md) defines
+the portable protocol, [manifest schema](tester-manifest.schema.json), host
+boundary and consumer acceptance matrix. It does not change the current
+conformance runner or enable the feature across the fleet.
+
+| Layer | Foundation evidence | Remaining adoption work |
+|---|---|---|
+| Omnifield reference | Implementation at `fe346a6b34d6534764448d23b1265a460c423146`, landed through [PR #392](https://github.com/seolith-llc/seolith-omnifield/pull/392), merge `bc3020a` | Record actual staging and production serving release, access grants, acceptance and restore evidence in the app's operating docs; this source row is not live-health evidence |
+| Shared SDK | Private, unpublished `@seolith-llc/tester-core` `0.1.0`, source `1e83c44e8905efbf140e67becef18462878f5938`; [PR #38](https://github.com/seolith-llc/seolith-sdk/pull/38) merged as `c855e21c8c1d4e059b0e04dc91eefe1a98a77405` | Choose an approved distribution mechanism and complete each consumer's host integration; no automatic registry publishing |
+| Other applications | No adoption or deployment established by this change | Inventory each host, implement UI/auth/tenant/transport/server/offline adapters and catalog, then pass TV1 checks and stage/activate separately |
+
+For each consumer, record repo + immutable implementation/package versions,
+owner, environment/public origin, auth/permission mapping, schema/storage and
+backup/restore coverage, TV1 check links, staging acceptance, production release
+and rollback instructions. Keep `planned`, `implemented`, `staging accepted` and
+`production verified` distinct. Existing identity convergence is not a prerequisite
+to adopting Tester; preserve the host's current identity and tenant contracts.
+
 ## Verification
 
 - Every touched repo: PR with green CI (gates + build/test), merged to main.

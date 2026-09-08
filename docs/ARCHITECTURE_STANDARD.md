@@ -130,6 +130,13 @@ worth it.
 **Never** split for org-chart or aesthetic reasons; every extra repo costs CI
 wiring, secret-scan coverage, vuln triage, and AI-agent context.
 
+Tester adoption follows [Tester v1](TESTER_V1_STANDARD.md): shared browser core in
+`seolith-sdk/packages/tester-core`, with identity, UI, transport and durable server
+adapters owned by each application. The SDK foundation is private and unpublished;
+it introduces no central evidence service. Its acceptance matrix is separate from
+the current M1–M10 CI gates. Record actual app/environment adoption before claiming
+estate coverage; linking the standard or extracting the package is insufficient.
+
 ## 6. Operations
 
 - Every **product** and **client-work** repo has a `docs/RUNBOOK.md`: how to
@@ -185,3 +192,7 @@ actions. Additions require a PR touching this table.
 - **2026-07-30** — GitHub Packages is the only path for shared .NET code;
   sibling-checkout `ProjectReference` across repos is banned (root cause of the
   June–July red streak in ortho/sportmed/domain-suite).
+- **2026-09-08** — Tester v1 foundation documented from Omnifield `fe346a6`:
+  portable browser core belongs in the SDK; each app retains its auth, tenant
+  binding and durable history/evidence. No automatic publishing, fleet activation,
+  shared backend or new runtime/CI enforcement is introduced by this decision.
