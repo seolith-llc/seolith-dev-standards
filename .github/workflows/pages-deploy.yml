@@ -42,8 +42,7 @@ on:
       package-manager:
         description: npm | pnpm
         required: false
-        type: choice
-        options: ["npm", "pnpm"]
+        type: string
         default: "npm"
       runs-on:
         required: false
@@ -74,12 +73,14 @@ jobs:
     permissions: {}
     outputs:
       runs-on: ${{ steps.validate.outputs.runs-on }}
+      package-manager: ${{ steps.validate.outputs.package-manager }}
     steps:
       - name: Validate requested runner label set
         id: validate
         shell: bash
         env:
           REQUESTED: ${{ inputs.runs-on }}
+          PACKAGE_MANAGER: ${{ inputs.package-manager }}
         run: |
           set -euo pipefail
           case "$REQUESTED" in
@@ -90,7 +91,15 @@ jobs:
               exit 1
               ;;
           esac
+          case "$PACKAGE_MANAGER" in
+            npm|pnpm) ;;
+            *)
+              echo "::error::package-manager must be npm or pnpm."
+              exit 1
+              ;;
+          esac
           printf 'runs-on=%s\n' "$REQUESTED" >> "$GITHUB_OUTPUT"
+          printf 'package-manager=%s\n' "$PACKAGE_MANAGER" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: [resolve-runner]
@@ -112,7 +121,7 @@ jobs:
           package-manager-cache: false
 
       - name: Enable pnpm via corepack (uses the repo's packageManager pin)
-        if: inputs.package-manager == 'pnpm'
+        if: needs.resolve-runner.outputs.package-manager == 'pnpm'
         run: corepack enable pnpm
 
       # GitHub Packages auth for repos consuming @seolith-llc/* (secrets cannot
@@ -125,9 +134,11 @@ jobs:
 
       - name: Install and build
         working-directory: ${{ inputs.app-path }}
+        env:
+          PACKAGE_MANAGER: ${{ needs.resolve-runner.outputs.package-manager }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.package-manager }}" = "pnpm" ]; then
+          if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
             pnpm install --frozen-lockfile
             pnpm build
           else
