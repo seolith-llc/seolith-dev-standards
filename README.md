@@ -18,6 +18,7 @@ Centralized hub for ecosystem standards: DevContainers, CI/CD templates, Linting
 - [PWA launch checklist](docs/PWA_LAUNCH_CHECKLIST.md)
 - [Observability standard](docs/OBSERVABILITY_STANDARD.md)
 - [VM baseline](docs/VM_BASELINE.md)
+- [Project board workflow standard](docs/PROJECT_BOARD_WORKFLOW.md) — standard Kanban columns and workflow for GitHub Project boards.
 
 ## Local Repo Audit
 
