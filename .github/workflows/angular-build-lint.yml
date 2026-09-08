@@ -45,8 +45,8 @@ on:
       # continue-on-error to the step below.
       audit-level:
         required: false
-        type: choice
-        options: ["info", "low", "moderate", "high", "critical"]
+        type: string
+        description: "info | low | moderate | high | critical; validated before the build job"
         default: "critical"
       runs-on:
         required: false
@@ -107,12 +107,14 @@ jobs:
     permissions: {}
     outputs:
       runs-on: ${{ steps.validate.outputs.runs-on }}
+      audit-level: ${{ steps.validate.outputs.audit-level }}
     steps:
       - name: Validate requested runner label set
         id: validate
         shell: bash
         env:
           REQUESTED: ${{ inputs.runs-on }}
+          AUDIT_LEVEL: ${{ inputs.audit-level }}
         run: |
           set -euo pipefail
           case "$REQUESTED" in
@@ -123,7 +125,15 @@ jobs:
               exit 1
               ;;
           esac
+          case "$AUDIT_LEVEL" in
+            info|low|moderate|high|critical) ;;
+            *)
+              echo "::error::audit-level must be info, low, moderate, high, or critical."
+              exit 1
+              ;;
+          esac
           printf 'runs-on=%s\n' "$REQUESTED" >> "$GITHUB_OUTPUT"
+          printf 'audit-level=%s\n' "$AUDIT_LEVEL" >> "$GITHUB_OUTPUT"
 
   lint-and-build:
     needs: [resolve-runner]
@@ -198,7 +208,10 @@ jobs:
       # how to ratchet a cleared repo up to "high". NO continue-on-error here,
       # deliberately and permanently.
       - name: Audit dependencies
-        run: npm audit --audit-level=${{ inputs.audit-level }}
+        shell: bash
+        env:
+          AUDIT_LEVEL: ${{ needs.resolve-runner.outputs.audit-level }}
+        run: npm audit --audit-level="$AUDIT_LEVEL"
         working-directory: ${{ steps.detect.outputs.path }}
 
       # This step was `continue-on-error: true` until 2026-08-04, so lint could

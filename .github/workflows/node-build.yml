@@ -21,8 +21,8 @@ on:
         default: "npm run build"
       audit-level:
         required: false
-        type: choice
-        options: ["info", "low", "moderate", "high", "critical"]
+        type: string
+        description: "info | low | moderate | high | critical; validated before the build job"
         default: "high"
       runs-on:
         required: false
@@ -58,12 +58,14 @@ jobs:
     permissions: {}
     outputs:
       runs-on: ${{ steps.validate.outputs.runs-on }}
+      audit-level: ${{ steps.validate.outputs.audit-level }}
     steps:
       - name: Validate requested runner label set
         id: validate
         shell: bash
         env:
           REQUESTED: ${{ inputs.runs-on }}
+          AUDIT_LEVEL: ${{ inputs.audit-level }}
         run: |
           set -euo pipefail
           case "$REQUESTED" in
@@ -74,7 +76,15 @@ jobs:
               exit 1
               ;;
           esac
+          case "$AUDIT_LEVEL" in
+            info|low|moderate|high|critical) ;;
+            *)
+              echo "::error::audit-level must be info, low, moderate, high, or critical."
+              exit 1
+              ;;
+          esac
           printf 'runs-on=%s\n' "$REQUESTED" >> "$GITHUB_OUTPUT"
+          printf 'audit-level=%s\n' "$AUDIT_LEVEL" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [resolve-runner]
@@ -155,10 +165,11 @@ jobs:
       # audit-level input, with a dated comment saying why. Do not restore this
       # flag -- that re-hides every repo on the lane to unblock one.
       - name: Audit dependencies
-        run: npm audit --audit-level=${{ inputs.audit-level }}
+        shell: bash
+        env:
+          AUDIT_LEVEL: ${{ needs.resolve-runner.outputs.audit-level }}
+        run: npm audit --audit-level="$AUDIT_LEVEL"
         working-directory: ${{ steps.detect.outputs.path }}
-        # audit-level is `type: choice` above -- only one of a fixed 5-value
-        # enum can ever reach this line, so direct interpolation is safe.
 
       - name: Build
         shell: pwsh
