@@ -18,6 +18,22 @@
 # raises the fix PRs, the gate stops new vulnerable versions merging.
 
 version: 2
+
+  # --- Private GitHub Packages feed ---------------------------------------
+  # REQUIRED in any repo whose manifest/lockfile references @seolith-llc/*
+  # packages (repo .npmrc maps the scope to npm.pkg.github.com). Without a
+  # registry credential every Dependabot job dies with
+  # "permission_denied: read_package" and @dependabot rebase silently no-ops.
+  # 1. Uncomment the registries: block below.
+  # 2. Add "registries: seolith-packages" to each npm update entry.
+  # 3. Set a PACKAGES_READ_TOKEN secret under Settings > Secrets and
+  #    variables > Dependabot (a read:packages-only PAT is enough).
+# registries:
+#   seolith-packages:
+#     type: npm-registry
+#     url: https://npm.pkg.github.com
+#     token: ${{secrets.PACKAGES_READ_TOKEN}}
+
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
