@@ -94,8 +94,13 @@ example of our standards is either fixed or archived — never left ambiguous.**
   not. Revisit-trigger: first paying customer buys nightly backups and a
   failover conversation — recorded here so it isn't relitigated each time.
 - Shared CI capacity (7 runners on 2 machines) is a commons: caches are shared
-  (`DOTNET_INSTALL_DIR`, npm cache), and a workflow that re-downloads SDKs per
-  run is a defect, not a preference.
+  where sharing is safe (npm cache), and a workflow that re-downloads SDKs per
+  run is a defect, not a preference. Exception: `actions/setup-dotnet` never
+  skips an already-installed SDK when `DOTNET_INSTALL_DIR` is set, so a shared
+  install dir buys nothing and concurrent jobs corrupt it (intermittent
+  `dotnet: command not found` / missing libhostfxr, 2026-09-12). The .NET lane
+  therefore installs into a per-run directory under `RUNNER_TEMP`; a genuine
+  shared SDK cache would need version-keyed directories with an install lock.
 
 ## 4. Quality gates
 
