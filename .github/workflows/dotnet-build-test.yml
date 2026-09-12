@@ -95,10 +95,23 @@ jobs:
       - name: Run AgentShield Security Scan
         run: npx --yes ecc-agentshield@1.4.0 scan --path "${{ github.workspace }}" --gate
         
+      # WHY THE PER-RUN INSTALL DIR. setup-dotnet does not skip an
+      # already-installed SDK when DOTNET_INSTALL_DIR is set: every job
+      # re-runs dotnet-install, which extracts straight over whatever is in
+      # the target directory. With the old shared location
+      # (runner.tool_cache/dotnet) two jobs on the same host extracted into
+      # the same directory concurrently and corrupted each other's install
+      # mid-use -- intermittent `dotnet: command not found` and missing
+      # libhostfxr (hit 4x in one day, 2026-09-12). A run/job/attempt-unique
+      # directory under runner.temp makes concurrent installs disjoint.
+      # setup-dotnet adds DOTNET_INSTALL_DIR to PATH and exports DOTNET_ROOT,
+      # so the restore/build/test steps are unaffected. The shared location
+      # never gave cache reuse anyway (the SDK was re-downloaded every run),
+      # so nothing is lost.
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         env:
-          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
           
