@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run conformance checks
-        uses: seolith-llc/seolith-dev-standards/.github/actions/conformance@v1.1.4
+        uses: seolith-llc/seolith-dev-standards/.github/actions/conformance@v1.1.5
         with:
           mode: ${{ inputs.mode }}
 
