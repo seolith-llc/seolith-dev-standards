@@ -69,7 +69,11 @@ jobs:
   # runs-on override actually in use estate-wide as of 2026-09-06; add a new
   # entry here deliberately if a new pool genuinely needs one.
   resolve-runner:
-    runs-on: [self-hosted]
+    # Linux pool only: unfiltered [self-hosted] can land on the Windows
+    # self-hosted runner (no WSL distro), where `shell: bash` fails instantly.
+    # The work job still runs on the caller-requested labels via the output
+    # below, so this does not constrain any lane to Linux.
+    runs-on: [self-hosted, Linux, X64]
     permissions: {}
     outputs:
       runs-on: ${{ steps.validate.outputs.runs-on }}
