@@ -73,7 +73,7 @@ for (const config of workflows) {
     assert.match(input, /^        type: string$/m);
     assert.doesNotMatch(input, /^        options:/m);
     assert.match(input, new RegExp(`^        default: "${config.fallback}"$`, 'm'));
-    assert.match(resolver, /^    runs-on: \[self-hosted\]$/m);
+    assert.match(resolver, /^    runs-on: \[self-hosted, Linux, X64\]$/m);
     assert.match(resolver, /^    permissions: \{\}$/m);
     assert.match(source, /needs: \[resolve-runner\][\s\S]*?runs-on: \$\{\{ fromJSON\(needs\.resolve-runner\.outputs\.runs-on\) \}\}/);
     assert.match(source, new RegExp(`needs\\.resolve-runner\\.outputs\\.${config.input}`));
