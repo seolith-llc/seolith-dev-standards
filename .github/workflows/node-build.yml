@@ -58,7 +58,9 @@ jobs:
     # self-hosted runner (no WSL distro), where `shell: bash` fails instantly.
     # The work job still runs on the caller-requested labels via the output
     # below, so this does not constrain any lane to Linux.
-    runs-on: [self-hosted, Linux, X64]
+    # seolith-local keeps this job off prod-01-refrilog: that runner sits on the
+    # production host, carries self-hosted/Linux/X64, and is not a build pool.
+    runs-on: [self-hosted, Linux, X64, seolith-local]
     permissions: {}
     outputs:
       runs-on: ${{ steps.validate.outputs.runs-on }}
