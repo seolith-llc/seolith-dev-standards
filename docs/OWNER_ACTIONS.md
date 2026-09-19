@@ -2,7 +2,7 @@
 
 Things the automation cannot do for you — each item has the exact steps. Ordered by
 customer impact. Delete items as you complete them (or ask for a status refresh).
-Last updated: 2026-09-06.
+Last updated: 2026-09-19.
 
 Completed 2026-09-05 and removed from this list: secret rotation (#0 — both Authentik
 instances), eventkeep prod cutover (#3), the Authentik registration session (#3b —
@@ -82,7 +82,40 @@ and was the reliability risk we just removed.
 `Twwb@202405` sat in seolith-twbb git history (Keycloak era, now purged via #83).
 If that password was reused anywhere, rotate it.
 
-## 7. Smaller items
+## 7. Provision the seolith-secret-sweep GitHub App (blocks the S4 org-wide secret sweep)
+
+`.github/workflows/org-secret-scan.yml` (weekly org-wide gitleaks sweep, estate
+backlog S4) is merged-ready but cannot enumerate or clone the org's 116 private
+repos with GITHUB_TOKEN — that token is scoped to the workflow's own repo. The
+sweep mints a token from a dedicated GitHub App instead (the seolith-ops-dispatch
+precedent, not a PAT). Until the app exists, the sweep fails fast with a pointer
+here — deliberately, so it can never silently scan only the 4 public repos.
+
+Steps (org owner, ~10 min):
+
+1. https://github.com/organizations/seolith-llc/settings/apps/new
+   - Name: `seolith-secret-sweep`
+   - Homepage URL: `https://github.com/seolith-llc/seolith-dev-standards`
+   - Webhook: uncheck **Active** (the app receives nothing)
+   - Repository permissions: **Contents: Read-only** (Metadata read-only is automatic; nothing else)
+   - "Where can this GitHub App be installed?": **Only on this account**
+2. After creating: note the **App ID**, then **Generate a private key** (downloads a `.pem`).
+3. Install the app: https://github.com/organizations/seolith-llc/settings/apps/seolith-secret-sweep/installations
+   → choose **All repositories** (new repos then inherit coverage automatically).
+4. Add the two org secrets, visible to seolith-dev-standards ONLY
+   (`printf`, not `echo` — echo's trailing newline poisons the value):
+   ```
+   gh secret set SWEEP_APP_ID --org seolith-llc --visibility selected --repos seolith-dev-standards --body "<app id>"
+   gh secret set SWEEP_APP_PRIVATE_KEY --org seolith-llc --visibility selected --repos seolith-dev-standards < seolith-secret-sweep.*.private-key.pem
+   ```
+5. Trigger the first run: `gh workflow run org-secret-scan.yml -R seolith-llc/seolith-dev-standards`
+   and check the `org-secret-sweep-report` artifact.
+
+The app is read-only by construction; the workflow further narrows each minted
+token to `contents: read`. Rotation: regenerate the private key and re-set
+`SWEEP_APP_PRIVATE_KEY` (old keys are revocable from the app settings page).
+
+## 8. Smaller items
 
 - **Seq UI spot-check**: log into https://seq.seolith.com and confirm events flow
   from the 13 telemetry-enabled services (ingestion is verified working; the query

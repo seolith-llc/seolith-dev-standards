@@ -67,5 +67,6 @@ cached views of the old commits — rotation (step 1) is the only true fix.
 ## Prevention (already available in this repo)
 
 - `secret-scan.yml` reusable workflow gates HEAD on every PR for 55 repos — keep it mandatory.
+- `org-secret-scan.yml` sweeps every non-archived org repo weekly (Sunday 03:47 UTC) and reports findings + gate/config drift into a workflow artifact — the net for repos that never adopted the gate. Reported, not gated; rotation stays the fix.
 - After rotations complete, set `scan-history: true` once, fleet-wide, to certify clean.
 - Add `.env`, `.env.*` (with `!.env.example`) to every repo `.gitignore` — enforced via `scripts/seolith-conformance.sh` MUST-tier checks.
