@@ -30,7 +30,8 @@ harness for `workflow_call` lanes.
 
 - `.github/workflows/` — the reusable lanes: `angular-build-lint`,
   `dotnet-build-test`, `node-build`, `node-pwa-build`, `build-push-ecr`,
-  `deploy-staging`, `secret-scan` (all `workflow_call`), plus the two smokes
+  `deploy-staging`, `secret-scan` (all `workflow_call`), the weekly org-wide
+  `org-secret-scan` sweep (schedule + `workflow_dispatch`), plus the two smokes
 - `scripts/` — fleet audit, VM bootstrap, runner install, pre-commit hooks
 - `docs/` — CI/CD, branch hygiene, theming, observability, VM baseline,
   deployment inventory, PWA checklist standards

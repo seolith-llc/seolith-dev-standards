@@ -1,0 +1,8 @@
+# seolith-conformance baseline -- frozen 2026-09-19. This freezes today's debt; it does not forgive it.
+# key format: RULE<TAB>file<TAB>message (line numbers dropped so edits that shift lines do not un-freeze debt;
+# one line per occurrence, so a second identical violation in the same file is NEW and blocks)
+M2	tests/fixtures/conformance-m1/.github/workflows/generic-ci.yml	workflow under a relocated .github (not at repo root) -- GitHub reads only the root .github, so this CI is silently deregistered
+M2	tests/fixtures/conformance-m1/.github/workflows/security-gates.yml	workflow under a relocated .github (not at repo root) -- GitHub reads only the root .github, so this CI is silently deregistered
+M5	.github/workflows/pages-deploy.yml	unpinned npx package [wrangler@4] -- resolves to whatever npm calls latest at job start
+M5	.github/workflows/pages-deploy.yml	unpinned npx package [wrangler@4] -- resolves to whatever npm calls latest at job start
+M8	.github/workflows	no gitleaks gate runs on push/PR (secret-scan.yml caller or equivalent)

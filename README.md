@@ -42,6 +42,30 @@ Install the standard local `gitleaks` pre-commit hook into every Git repo under 
 
 Use `-Force` when existing hooks should be replaced with the current standard hook.
 
+## Org-Wide Secret Sweep
+
+`.github/workflows/org-secret-scan.yml` runs every Sunday 03:47 UTC (and on
+`workflow_dispatch`) and sweeps **every non-archived repo in seolith-llc** —
+including repos that never adopted the per-repo `secret-scan.yml` gate. The
+gate blocks PRs; the sweep reports drift:
+
+- Working-tree gitleaks (same pinned, checksum-verified 8.30.1 binary as the
+  gate), `--redact`, per-repo batched matrix jobs on the `linux-build` pool.
+- Each repo is scanned with its own `.gitleaks.toml` when present (repo-local
+  allowlists are respected), else the canonical config from this repo.
+- Findings are **reported, not gated**: the job fails only on scanner
+  infrastructure errors (clone/scanner failures), never on findings.
+- Output: a job summary plus an `org-secret-sweep-report` artifact
+  (`summary.md`, `findings.jsonl` with repo/rule/file:line, values redacted),
+  including drift lists — repos without the PR gate and repos without a
+  repo-local config.
+
+Cross-repo access uses the dedicated `seolith-secret-sweep` GitHub App
+(contents: read-only; GITHUB_TOKEN cannot enumerate or clone the org's private
+repos). Provisioning it is a one-time owner action — see
+[docs/OWNER_ACTIONS.md](docs/OWNER_ACTIONS.md). Until then the sweep fails
+fast with that pointer rather than silently scanning only public repos.
+
 ## 🛡️ Built-in Security (AgentShield)
 All reusable CI/CD workflows (`.github/workflows/*.yml`) in this repository are pre-configured with **AgentShield**. 
 When an application inherits these workflows, it automatically gets:
