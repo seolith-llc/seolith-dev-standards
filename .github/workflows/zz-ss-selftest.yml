@@ -1,4 +1,4 @@
-name: zz secret-scan self-test: detect (temporary)
+name: "zz secret-scan self-test: detect (temporary)"
 
 # Temporary v1.1.8 secret-scan self-test. The branch and any PR are deleted afterwards.
 on:
