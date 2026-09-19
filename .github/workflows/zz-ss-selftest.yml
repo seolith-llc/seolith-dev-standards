@@ -1,0 +1,32 @@
+name: zz secret-scan self-test: detect (temporary)
+
+# Temporary v1.1.8 secret-scan self-test. The branch and any PR are deleted afterwards.
+on:
+  push:
+    branches: [test/ss-detect]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  new-lane-on-nuc:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/secret-scan.yml@8d241712eea4d7799cc23a5fc6cb515284340791
+    with:
+      runs-on: '["self-hosted","Linux","X64","seolith-local","always-on"]'
+      scan-history: true
+  new-lane-pool:
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2]
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/secret-scan.yml@8d241712eea4d7799cc23a5fc6cb515284340791
+    with:
+      runs-on: '["self-hosted","Linux","X64","seolith-local","linux-build"]'
+      scan-history: true
+  old-lane-control:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/secret-scan.yml@72e8baa82f138286890738a2c7415a68adac5a39
+    with:
+      runs-on: '["self-hosted","Linux","X64","seolith-local","always-on"]'
+      scan-history: true
