@@ -9,11 +9,14 @@ name: Reusable Lighthouse Budget Check
 # static output dir locally, run treosh/lighthouse-ci-action against the key
 # URLs, assert the budget, and upload the HTML/JSON reports as an artifact.
 #
-# Rollout posture: continue-on-error defaults to TRUE. Budget regressions
-# surface as check annotations and in the job summary/artifact, but the
-# check stays green until a caller deliberately sets continue-on-error:
-# false -- which is also the standard's "budget regressions block release"
-# end-state for marketing pages.
+# Rollout posture: continue-on-error defaults to TRUE = report-only. In
+# report-only mode no assertions are configured at all (collect-only), so the
+# check is genuinely green and scores land in the job summary + artifact;
+# job-level continue-on-error then only covers infrastructure flakiness.
+# (Asserting while continue-on-error:true still concludes the check run
+# "failure" and blocks protected merges -- seolith-main-site#66.) Setting
+# continue-on-error: false flips a caller to the standard's "budget
+# regressions block release" end-state for marketing pages.
 #
 # resolve-runner deliberately runs on ubuntu-latest, NOT the self-hosted
 # guard job the build lanes use: GitHub does not schedule self-hosted runner
@@ -266,8 +269,15 @@ jobs:
       # are lhci assertions. A caller's budget-file must likewise be a
       # lighthouserc JSON with a top-level ci.assert block (it may itself
       # reference a budgets.json via ci.assert.budgetsFile).
+      #
+      # Report-only mode (continue-on-error: true) SKIPS assertion config
+      # entirely: job-level continue-on-error still leaves the check-run
+      # conclusion "failure", which blocks merge under branch protection --
+      # proven on seolith-main-site#66. Collect-only mode makes the check
+      # genuinely green while results still land in the summary/artifact.
       - name: Generate assertion config
         id: assert
+        if: inputs.continue-on-error == false
         shell: bash
         env:
           PRESET: ${{ inputs.budget-preset }}
@@ -300,8 +310,9 @@ jobs:
           echo "config=.lighthouseci-assert.json" >> "$GITHUB_OUTPUT"
           echo "Preset '$PRESET': categories:performance >= ${score}, LCP <= 2500ms"
 
-      - name: Run Lighthouse CI
+      - name: "Run Lighthouse CI (enforced: assert budgets)"
         id: lhci
+        if: inputs.continue-on-error == false
         uses: treosh/lighthouse-ci-action@v12
         with:
           urls: ${{ steps.urls.outputs.list }}
@@ -311,12 +322,23 @@ jobs:
           temporaryPublicStorage: true
           artifactName: lighthouse-results
 
+      - name: "Run Lighthouse CI (report-only: collect, no assertions)"
+        id: lhci-report
+        if: inputs.continue-on-error == true
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: ${{ steps.urls.outputs.list }}
+          runs: ${{ inputs.runs }}
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+          artifactName: lighthouse-results
+
       - name: Summarize results
         if: always()
         shell: bash
         env:
-          LINKS: ${{ steps.lhci.outputs.links }}
-          ASSERTIONS: ${{ steps.lhci.outputs.assertionResults }}
+          LINKS: ${{ steps.lhci.outputs.links || steps.lhci-report.outputs.links }}
+          ASSERTIONS: ${{ steps.lhci.outputs.assertionResults || steps.lhci-report.outputs.assertionResults }}
           MODE: "${{ inputs.continue-on-error && 'report-only (continue-on-error: true)' || 'enforced' }}"
         run: |
           {
