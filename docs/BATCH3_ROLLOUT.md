@@ -99,6 +99,15 @@ jobs:
 
 Notes:
 
+- Report-only UX: with `continue-on-error: true` (default) a budget
+  regression marks the **job** conclusion as failure (red ❌ in the checks
+  list and annotations with the exact scores) while the **workflow run**
+  stays green, so nothing is blocked and the finding is never invisible.
+  This is deliberate: a step-level `continue-on-error` would report
+  `conclusion=success` to the jobs API and hide the regression from
+  tooling — the failure mode `node-build.yml`'s audit-step comment
+  documents. Required-check enforcement only applies once the repo flips
+  to `continue-on-error: false`.
 - The lane builds, serves `output-dir` statically (SPA fallback enabled),
   runs Lighthouse mobile + simulated throttling against each URL, and
   asserts the budget. HTML/JSON reports land in the `lighthouse-results`
