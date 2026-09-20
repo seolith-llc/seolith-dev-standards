@@ -310,7 +310,7 @@ jobs:
           echo "config=.lighthouseci-assert.json" >> "$GITHUB_OUTPUT"
           echo "Preset '$PRESET': categories:performance >= ${score}, LCP <= 2500ms"
 
-      - name: Run Lighthouse CI (enforced: assert budgets)
+      - name: "Run Lighthouse CI (enforced: assert budgets)"
         id: lhci
         if: inputs.continue-on-error == false
         uses: treosh/lighthouse-ci-action@v12
@@ -322,7 +322,7 @@ jobs:
           temporaryPublicStorage: true
           artifactName: lighthouse-results
 
-      - name: Run Lighthouse CI (report-only: collect, no assertions)
+      - name: "Run Lighthouse CI (report-only: collect, no assertions)"
         id: lhci-report
         if: inputs.continue-on-error == true
         uses: treosh/lighthouse-ci-action@v12
