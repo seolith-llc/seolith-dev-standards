@@ -1,0 +1,156 @@
+name: Reusable Link Check
+
+# Batch 3 of the site-essentials program: broken-link checking per
+# docs/SITE_ESSENTIALS_STANDARD.md item 16. lychee is the estate standard.
+#
+# Rollout posture: fail-on-error defaults to FALSE (report-only). The lychee
+# report is always written to the job summary and uploaded as an artifact;
+# the job only goes red when a caller deliberately flips fail-on-error, per
+# the standard: block for marketing sites, warn for app repos with
+# frequently changing external references.
+#
+# resolve-runner deliberately runs on ubuntu-latest, NOT the self-hosted
+# guard job the build lanes use: GitHub does not schedule self-hosted runner
+# groups for PUBLIC repos (runner groups default to private-only), so a
+# guard pinned to self-hosted labels would hang forever for exactly the
+# repos the estate rule pushes onto ubuntu-latest. This job checks out
+# nothing and runs no caller-controlled code, so GitHub-hosted is safe.
+
+on:
+  workflow_call:
+    inputs:
+      scan-path:
+        required: false
+        type: string
+        description: "File/dir/glob lychee scans, e.g. '.' for repo markdown+HTML or 'dist' for built output"
+        default: "."
+      args:
+        required: false
+        type: string
+        description: "Extra lychee CLI args, appended after the estate defaults (e.g. '--base https://example.com')"
+        default: ""
+      runs-on:
+        required: false
+        type: string
+        # Estate rule: PRIVATE repos run on the self-hosted pool (default
+        # below), PUBLIC repos must pass '["ubuntu-latest"]' -- self-hosted
+        # runner groups do not accept public repos at all.
+        default: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
+      fail-on-error:
+        required: false
+        type: boolean
+        description: "false = report-only (rollout default); true = broken links fail the job (enforcement)"
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # M6: runs-on is resolved before any step of the work job runs, so it
+  # cannot be validated from inside that job. This job runs on a fixed,
+  # non-caller-controlled runner first and rejects any runs-on value not
+  # already proven safe -- closing "caller picks the machine" without
+  # changing behavior for any existing caller.
+  resolve-runner:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      runs-on: ${{ steps.validate.outputs.runs-on }}
+    steps:
+      - name: Validate requested runner label set
+        id: validate
+        shell: bash
+        env:
+          REQUESTED: ${{ inputs.runs-on }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED" in
+            '["self-hosted","Linux","X64","seolith-local","node-capable"]'|'["self-hosted","Linux","X64","seolith-local","linux-build"]'|'["ubuntu-latest"]')
+              ;;
+            *)
+              echo "::error::runs-on input '$REQUESTED' is not an approved label set for this workflow. A caller cannot redirect this job to an arbitrary runner -- add the new label set here deliberately if a new pool genuinely needs it."
+              exit 1
+              ;;
+          esac
+          printf 'runs-on=%s\n' "$REQUESTED" >> "$GITHUB_OUTPUT"
+
+  link-check:
+    needs: [resolve-runner]
+    runs-on: ${{ fromJSON(needs.resolve-runner.outputs.runs-on) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Estate defaults, then caller args, then the scan target:
+      #  - mailto: links are excluded by lychee itself by default in
+      #    v0.24.x (--exclude-mail was REMOVED; --include-mail opts back
+      #    in -- the standard's example predates this).
+      #  - --exclude-all-private covers loopback (incl. localhost),
+      #    RFC1918 private, and link-local addresses -- none are reachable
+      #    from CI and all are common in docs and config samples.
+      #  - 3 retries / 20s timeout absorb flaky hosts before reporting.
+      # Repos with known-flaky hosts should add a .lycheeignore (lychee
+      # reads it automatically) rather than loosening these defaults.
+      # entrypoint.sh runs args through eval, so the single-quoted value
+      # below survives as one argv entry.
+      - name: Resolve scan args
+        id: scan
+        shell: bash
+        env:
+          SCAN_PATH: ${{ inputs.scan-path }}
+          EXTRA_ARGS: ${{ inputs.args }}
+        run: |
+          set -euo pipefail
+          args="$EXTRA_ARGS"
+          # Root-relative links (/privacy, /#blog) are normal in served
+          # sites but unresolvable when scanning local files: lychee errors
+          # on every one ("provide a root dir") unless told where the site
+          # root is -- in both batch-3 pilots they were the ENTIRE error
+          # report. For directory scans, auto-supply --root-dir plus
+          # --fallback-extensions so '/privacy' resolves to privacy.html
+          # (Cloudflare Pages pretty-URL style). Callers override with
+          # their own --root-dir / --base-url / --fallback-extensions.
+          if [ -d "$SCAN_PATH" ] && [[ "$args" != *--root-dir* && "$args" != *--base-url* && "$args" != *--base\ * ]]; then
+            args="--root-dir '$(realpath "$SCAN_PATH")' $args"
+            [[ "$args" == *--fallback-extensions* ]] || args="--fallback-extensions html,htm $args"
+          fi
+          printf 'args=%s\n' "$args" >> "$GITHUB_OUTPUT"
+          echo "lychee args: $args"
+
+      - name: Run lychee
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --verbose --no-progress
+            --exclude-all-private
+            --max-retries 3 --timeout 20
+            ${{ steps.scan.outputs.args }}
+            '${{ inputs.scan-path }}'
+          # Report-only rollout: with fail-on-error=false the step must not
+          # go red for ANY finding, including "no links found" (which
+          # failIfEmpty would otherwise turn into a failure regardless of
+          # `fail`). Enforcement callers get both.
+          fail: ${{ inputs.fail-on-error }}
+          failIfEmpty: ${{ inputs.fail-on-error }}
+          format: markdown
+          jobSummary: true
+          output: lychee-results.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # In report-only mode a red lychee exit code still produces a green
+      # step; surface the finding as an annotation so it is visible without
+      # opening the artifact.
+      - name: Annotate report-only findings
+        if: always() && steps.lychee.outputs.exit_code != '' && steps.lychee.outputs.exit_code != '0'
+        shell: bash
+        run: |
+          echo "::warning::lychee exited ${{ steps.lychee.outputs.exit_code }} (broken links or unreachable hosts). Report-only mode: see the job summary and the lychee-results artifact. Set fail-on-error: true to enforce."
+
+      - name: Upload lychee report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lychee-results
+          path: lychee-results.md
+          if-no-files-found: warn

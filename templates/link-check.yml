@@ -1,0 +1,26 @@
+# Copy this file to <your-repo>/.github/workflows/link-check.yml and adjust
+# the inputs. Site-essentials standard item 16; see docs/BATCH3_ROLLOUT.md.
+#
+# Report-only by default: broken links appear in the job summary and the
+# lychee-results artifact but do not fail the check. Set fail-on-error: true
+# to enforce (required end-state for marketing sites).
+
+name: Link Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link-check:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/link-check.yml@main
+    with:
+      scan-path: "."
+      # args: "--base https://example.com"
+      # runs-on: '["ubuntu-latest"]'   # REQUIRED for public repos
+      # fail-on-error: true            # flip to enforce
