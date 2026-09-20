@@ -18,6 +18,7 @@ Centralized hub for ecosystem standards: DevContainers, CI/CD templates, Linting
 - [PWA launch checklist](docs/PWA_LAUNCH_CHECKLIST.md)
 - [Observability standard](docs/OBSERVABILITY_STANDARD.md)
 - [Site essentials standard](docs/SITE_ESSENTIALS_STANDARD.md) — 20-point compliance baseline every web repo must meet (legal pages, security headers, SEO, accessibility, performance, forms); audits run from seolith-ops-control
+- [Batch 3 rollout: link check + Lighthouse budgets](docs/BATCH3_ROLLOUT.md) — caller setup for the shared `link-check.yml` (item 16) and `lighthouse.yml` (item 12) reusable lanes, and how to flip from report-only to enforced
 - [VM baseline](docs/VM_BASELINE.md)
 - [Project board workflow standard](docs/PROJECT_BOARD_WORKFLOW.md) — standard Kanban columns and workflow for GitHub Project boards.
 
