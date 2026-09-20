@@ -81,22 +81,24 @@ jobs:
       - uses: actions/checkout@v7
 
       # Estate defaults, then caller args, then the scan target:
-      #  - mailto:, loopback (localhost/127.0.0.1/::1), and RFC1918/private
-      #    links are excluded -- they are never reachable from CI and are
-      #    common in docs and config samples.
+      #  - mailto: links are excluded by lychee itself by default in
+      #    v0.24.x (--exclude-mail was REMOVED; --include-mail opts back
+      #    in -- the standard's example predates this).
+      #  - --exclude-all-private covers loopback (incl. localhost),
+      #    RFC1918 private, and link-local addresses -- none are reachable
+      #    from CI and all are common in docs and config samples.
       #  - 3 retries / 20s timeout absorb flaky hosts before reporting.
       # Repos with known-flaky hosts should add a .lycheeignore (lychee
       # reads it automatically) rather than loosening these defaults.
       # entrypoint.sh runs args through eval, so the single-quoted regex
-      # below survives as one argv entry.
+      # style below survives as one argv entry.
       - name: Run lychee
         id: lychee
         uses: lycheeverse/lychee-action@v2
         with:
           args: >-
             --verbose --no-progress
-            --exclude-mail --exclude-loopback --exclude-private
-            --exclude '^https?://(localhost|127\.0\.0\.1|\[::1\])([/:]|$)'
+            --exclude-all-private
             --max-retries 3 --timeout 20
             ${{ inputs.args }}
             '${{ inputs.scan-path }}'
