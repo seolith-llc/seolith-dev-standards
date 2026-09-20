@@ -1,0 +1,34 @@
+# Copy this file to <your-repo>/.github/workflows/lighthouse.yml and adjust
+# the inputs. Site-essentials standard item 12; see docs/BATCH3_ROLLOUT.md.
+#
+# Report-only by default: budget regressions appear as annotations plus the
+# lighthouse-results artifact but do not fail the check. Set
+# continue-on-error: false (and consider runs: 3) to enforce -- required
+# end-state for marketing pages.
+
+name: Lighthouse Budgets
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    uses: seolith-llc/seolith-dev-standards/.github/workflows/lighthouse.yml@main
+    with:
+      project-path: "."
+      # install-command: "npm ci"        # "" skips install (plain static sites)
+      # build-command: "npm run build"   # "" skips build
+      output-dir: "dist"
+      urls: |
+        /
+      budget-preset: "marketing"         # marketing >= 0.90 | app >= 0.75
+      # budget-file: "lighthouserc.json"
+      # runs: 3
+      # continue-on-error: false         # flip to enforce
+      # runs-on: '["ubuntu-latest"]'     # REQUIRED for public repos
+    # secrets:
+    #   PACKAGES_READ_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
