@@ -1,0 +1,347 @@
+name: Reusable Lighthouse Budget Check
+
+# Batch 3 of the site-essentials program: page-load speed budgets per
+# docs/SITE_ESSENTIALS_STANDARD.md item 12. Lighthouse CI, mobile emulation
+# with simulated throttling (the lighthouse default), performance score
+# >= 0.90 for marketing/landing pages, >= 0.75 for app pages, LCP < 2.5s.
+#
+# The lane: build the caller's site with caller-supplied commands, serve the
+# static output dir locally, run treosh/lighthouse-ci-action against the key
+# URLs, assert the budget, and upload the HTML/JSON reports as an artifact.
+#
+# Rollout posture: continue-on-error defaults to TRUE. Budget regressions
+# surface as check annotations and in the job summary/artifact, but the
+# check stays green until a caller deliberately sets continue-on-error:
+# false -- which is also the standard's "budget regressions block release"
+# end-state for marketing pages.
+#
+# resolve-runner deliberately runs on ubuntu-latest, NOT the self-hosted
+# guard job the build lanes use: GitHub does not schedule self-hosted runner
+# groups for PUBLIC repos (runner groups default to private-only), so a
+# guard pinned to self-hosted labels would hang forever for exactly the
+# repos the estate rule pushes onto ubuntu-latest. This job checks out
+# nothing and runs no caller-controlled code, so GitHub-hosted is safe.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: "24"
+      project-path:
+        required: false
+        type: string
+        default: "."
+      install-command:
+        required: false
+        type: string
+        description: "Empty string skips the install step entirely (pre-built or plain static sites)"
+        default: "npm ci"
+      build-command:
+        required: false
+        type: string
+        description: "Empty string skips the build step entirely (plain static sites)"
+        default: "npm run build"
+      output-dir:
+        required: false
+        type: string
+        description: "Static output to serve, relative to project-path (e.g. 'dist', 'dist/client/browser', 'landing')"
+        default: "dist"
+      urls:
+        required: false
+        type: string
+        description: "Newline-separated site paths ('/privacy') or absolute URLs; paths are served locally"
+        default: "/"
+      budget-preset:
+        required: false
+        type: string
+        description: "marketing (perf >= 0.90) | app (perf >= 0.75); both assert LCP < 2.5s. Ignored when budget-file is set."
+        default: "marketing"
+      budget-file:
+        required: false
+        type: string
+        description: "Repo path to a custom lighthouserc JSON with ci.assert; overrides budget-preset"
+        default: ""
+      runs:
+        required: false
+        type: number
+        description: "Lighthouse runs per URL (median is asserted). 1 keeps rollout fast; raise to 3 when enforcing."
+        default: 1
+      continue-on-error:
+        required: false
+        type: boolean
+        description: "true = report-only (rollout default); false = budget failures fail the check (enforcement)"
+        default: true
+      runs-on:
+        required: false
+        type: string
+        # Estate rule: PRIVATE repos run on the self-hosted pool (default
+        # below), PUBLIC repos must pass '["ubuntu-latest"]' -- self-hosted
+        # runner groups do not accept public repos at all. Linux-only lane:
+        # the serve/assert tooling is bash and Chrome for Testing.
+        default: '["self-hosted","Linux","X64","seolith-local","node-capable"]'
+    secrets:
+      PACKAGES_READ_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  # M6: runs-on is resolved before any step of the work job runs, so it
+  # cannot be validated from inside that job. This job runs on a fixed,
+  # non-caller-controlled runner first and rejects any runs-on value not
+  # already proven safe -- closing "caller picks the machine" without
+  # changing behavior for any existing caller.
+  resolve-runner:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      runs-on: ${{ steps.validate.outputs.runs-on }}
+    steps:
+      - name: Validate requested runner label set and preset
+        id: validate
+        shell: bash
+        env:
+          REQUESTED: ${{ inputs.runs-on }}
+          PRESET: ${{ inputs.budget-preset }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED" in
+            '["self-hosted","Linux","X64","seolith-local","node-capable"]'|'["self-hosted","Linux","X64","seolith-local","linux-build"]'|'["ubuntu-latest"]')
+              ;;
+            *)
+              echo "::error::runs-on input '$REQUESTED' is not an approved label set for this workflow. A caller cannot redirect this job to an arbitrary runner -- add the new label set here deliberately if a new pool genuinely needs it."
+              exit 1
+              ;;
+          esac
+          case "$PRESET" in
+            marketing|app) ;;
+            *)
+              echo "::error::budget-preset must be 'marketing' or 'app'."
+              exit 1
+              ;;
+          esac
+          printf 'runs-on=%s\n' "$REQUESTED" >> "$GITHUB_OUTPUT"
+
+  lighthouse:
+    needs: [resolve-runner]
+    runs-on: ${{ fromJSON(needs.resolve-runner.outputs.runs-on) }}
+    continue-on-error: ${{ inputs.continue-on-error }}
+    timeout-minutes: 30
+    env:
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
+      NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: https://npm.pkg.github.com
+
+      - name: Install dependencies
+        if: inputs.install-command != ''
+        shell: bash
+        working-directory: ${{ inputs.project-path }}
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: |
+          set -euo pipefail
+          if [ "$INSTALL_COMMAND" = "npm ci" ] && [ ! -f package-lock.json ]; then
+            echo "No package-lock.json found; falling back to npm install."
+            npm install
+            exit 0
+          fi
+          # Tokenize and invoke directly instead of eval: a caller-supplied
+          # command is expected (that is the whole point of this input), but
+          # eval re-parses the string as shell code, so embedded
+          # ';'/'$(...)' execute as control flow rather than literal argv.
+          read -ra argv <<< "$INSTALL_COMMAND"
+          [ "${#argv[@]}" -gt 0 ] || { echo "::error::install-command resolved to an empty command."; exit 1; }
+          "${argv[@]}"
+
+      - name: Build
+        if: inputs.build-command != ''
+        shell: bash
+        working-directory: ${{ inputs.project-path }}
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: |
+          set -euo pipefail
+          # Tokenize and invoke directly instead of eval: see the Install
+          # dependencies step above for why.
+          read -ra argv <<< "$BUILD_COMMAND"
+          [ "${#argv[@]}" -gt 0 ] || { echo "::error::build-command resolved to an empty command."; exit 1; }
+          "${argv[@]}"
+
+      - name: Resolve output dir and pick a free port
+        id: prep
+        shell: bash
+        env:
+          PROJECT_PATH: ${{ inputs.project-path }}
+          OUTPUT_DIR: ${{ inputs.output-dir }}
+        run: |
+          set -euo pipefail
+          dir="$PROJECT_PATH/$OUTPUT_DIR"
+          [ -d "$dir" ] || { echo "::error::output-dir '$dir' does not exist after build. Check build-command and output-dir."; exit 1; }
+          dir=$(cd "$dir" && pwd)
+          # Random high port: self-hosted runners are shared hosts, and two
+          # lighthouse jobs on one host must not fight over a fixed port.
+          port=$(shuf -i 20000-45000 -n 1)
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "port=$port" >> "$GITHUB_OUTPUT"
+          echo "Serving dir: $dir on 127.0.0.1:$port"
+
+      # lighthouse-ci-action shells out to lhci, which locates Chrome via
+      # chrome-launcher. ubuntu-latest ships Chrome; the self-hosted pool
+      # does not, so install Chrome for Testing into runner.temp (no sudo,
+      # no shared-host state) and point CHROME_PATH at it.
+      - name: Ensure Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bin in google-chrome-stable google-chrome chromium chromium-browser; do
+            if command -v "$bin" >/dev/null 2>&1; then
+              echo "Found system Chrome: $bin ($("$bin" --version || true))"
+              exit 0
+            fi
+          done
+          echo "No system Chrome; installing Chrome for Testing via @puppeteer/browsers"
+          npx --yes @puppeteer/browsers install chrome@stable --path "$RUNNER_TEMP/chrome-cache"
+          chrome_bin=$(find "$RUNNER_TEMP/chrome-cache" -type f -name chrome | head -1)
+          [ -n "$chrome_bin" ] || { echo "::error::Chrome for Testing install produced no binary."; exit 1; }
+          echo "CHROME_PATH=$chrome_bin" >> "$GITHUB_ENV"
+          "$chrome_bin" --version
+
+      # Serve with SPA fallback (-s rewrites unknown paths to index.html) so
+      # client-side routes in the urls input resolve. nohup+disown keeps the
+      # server alive across steps; the cleanup step below kills it by port.
+      - name: Serve site
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ steps.prep.outputs.dir }}"
+          nohup npx --yes serve@14 -s -l "tcp://127.0.0.1:${{ steps.prep.outputs.port }}" . > "$RUNNER_TEMP/serve.log" 2>&1 &
+          disown
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null "http://127.0.0.1:${{ steps.prep.outputs.port }}/"; then
+              echo "Server is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Static server did not come up in 60s. Log follows."
+          cat "$RUNNER_TEMP/serve.log" || true
+          exit 1
+
+      - name: Build URL list
+        id: urls
+        shell: bash
+        env:
+          URLS: ${{ inputs.urls }}
+          PORT: ${{ steps.prep.outputs.port }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'list<<URLLIST'
+            while IFS= read -r line; do
+              # trim whitespace
+              line="${line#"${line%%[![:space:]]*}"}"
+              line="${line%"${line##*[![:space:]]}"}"
+              [ -n "$line" ] || continue
+              case "$line" in
+                http://*|https://*) echo "$line" ;;
+                /*)                 echo "http://127.0.0.1:${PORT}${line}" ;;
+                *)                  echo "http://127.0.0.1:${PORT}/${line}" ;;
+              esac
+            done <<< "$URLS"
+            echo 'URLLIST'
+          } >> "$GITHUB_OUTPUT"
+
+      # Budget mechanism: the standard budgets the Lighthouse performance
+      # SCORE (and LCP), which budgets.json cannot express -- so the presets
+      # are lhci assertions. A caller's budget-file must likewise be a
+      # lighthouserc JSON with a top-level ci.assert block (it may itself
+      # reference a budgets.json via ci.assert.budgetsFile).
+      - name: Generate assertion config
+        id: assert
+        shell: bash
+        env:
+          PRESET: ${{ inputs.budget-preset }}
+          BUDGET_FILE: ${{ inputs.budget-file }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BUDGET_FILE" ]; then
+            [ -f "$BUDGET_FILE" ] || { echo "::error::budget-file '$BUDGET_FILE' not found in the caller repo."; exit 1; }
+            echo "config=$BUDGET_FILE" >> "$GITHUB_OUTPUT"
+            echo "Using caller budget-file: $BUDGET_FILE"
+            exit 0
+          fi
+          score=0.90
+          [ "$PRESET" = "app" ] && score=0.75
+          # printf, not a heredoc: heredoc JSON would need column-0 lines,
+          # which end this YAML block scalar early (the file then fails to
+          # parse at all -- proven when this step was first written).
+          {
+            printf '{\n'
+            printf '  "ci": {\n'
+            printf '    "assert": {\n'
+            printf '      "assertions": {\n'
+            printf '        "categories:performance": ["error", { "minScore": %s }],\n' "$score"
+            printf '        "largest-contentful-paint": ["error", { "maxNumericValue": 2500 }]\n'
+            printf '      }\n'
+            printf '    }\n'
+            printf '  }\n'
+            printf '}\n'
+          } > .lighthouseci-assert.json
+          echo "config=.lighthouseci-assert.json" >> "$GITHUB_OUTPUT"
+          echo "Preset '$PRESET': categories:performance >= ${score}, LCP <= 2500ms"
+
+      - name: Run Lighthouse CI
+        id: lhci
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: ${{ steps.urls.outputs.list }}
+          configPath: ${{ steps.assert.outputs.config }}
+          runs: ${{ inputs.runs }}
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+          artifactName: lighthouse-results
+
+      - name: Summarize results
+        if: always()
+        shell: bash
+        env:
+          LINKS: ${{ steps.lhci.outputs.links }}
+          ASSERTIONS: ${{ steps.lhci.outputs.assertionResults }}
+          MODE: "${{ inputs.continue-on-error && 'report-only (continue-on-error: true)' || 'enforced' }}"
+        run: |
+          {
+            echo '## Lighthouse budget check'
+            echo
+            echo "Mode: **${MODE}**"
+            echo
+            if [ -n "$LINKS" ] && [ "$LINKS" != "{}" ]; then
+              echo '### Reports (temporary public storage)'
+              echo
+              echo "$LINKS" | jq -r 'to_entries[] | "- \(.key): \(.value)"' || echo "$LINKS"
+              echo
+            fi
+            if [ -n "$ASSERTIONS" ] && [ "$ASSERTIONS" != "[]" ]; then
+              echo '### Assertion failures'
+              echo
+              echo "$ASSERTIONS" | jq -r '.[] | select(.passed|not) | "- `\(.auditId)` on \(.url): expected \(.operator) \(.expected), got \(.actual)"' || echo "$ASSERTIONS"
+              echo
+            fi
+            echo 'Full HTML/JSON reports are in the `lighthouse-results` artifact.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop static server
+        if: always()
+        shell: bash
+        run: |
+          pkill -f "tcp://127.0.0.1:${{ steps.prep.outputs.port }}" || true
+          echo "Static server stopped (port ${{ steps.prep.outputs.port }})."

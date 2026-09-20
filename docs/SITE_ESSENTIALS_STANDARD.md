@@ -423,7 +423,9 @@ CI step (any stack, run against the built/deployed site):
 ```yaml
 - uses: lycheeverse/lychee-action@v2
   with:
-    args: --base https://example.com --exclude-mail --retry 3
+    # mailto: links are excluded by default in lychee v0.24.x; check them
+    # only with an explicit --include-mail.
+    args: --base https://example.com --max-retries 3
           'https://example.com'
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

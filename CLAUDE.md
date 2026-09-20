@@ -30,13 +30,17 @@ harness for `workflow_call` lanes.
 
 - `.github/workflows/` — the reusable lanes: `angular-build-lint`,
   `dotnet-build-test`, `node-build`, `node-pwa-build`, `build-push-ecr`,
-  `deploy-staging`, `secret-scan` (all `workflow_call`), the weekly org-wide
-  `org-secret-scan` sweep (schedule + `workflow_dispatch`), plus the two smokes
+  `deploy-staging`, `secret-scan`, `link-check`, `lighthouse` (all
+  `workflow_call`), the weekly org-wide `org-secret-scan` sweep (schedule +
+  `workflow_dispatch`), plus the two smokes
 - `scripts/` — fleet audit, VM bootstrap, runner install, pre-commit hooks
 - `docs/` — CI/CD, branch hygiene, theming, observability, VM baseline,
-  deployment inventory, PWA checklist standards
-- `templates/` — currently only `.gitleaks.toml` (template gitleaks config;
-  the secret-scan lane reads `.gitleaks.toml` from each consumer repo)
+  deployment inventory, PWA checklist standards, site-essentials rollout
+  guides (`BATCH3_ROLLOUT.md` for the link-check/lighthouse lanes)
+- `templates/` — files consumer repos copy in (`dependabot.yml`,
+  `link-check.yml`, `lighthouse.yml` caller snippets) plus `.gitleaks.toml`
+  (template gitleaks config; the secret-scan lane reads `.gitleaks.toml`
+  from each consumer repo)
 - `devcontainers/universal/` — shared devcontainer definition
 
 ## Do not touch
