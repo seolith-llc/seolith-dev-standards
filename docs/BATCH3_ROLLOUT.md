@@ -49,10 +49,15 @@ jobs:
 
 Notes:
 
-- Estate defaults exclude mailto:, localhost/loopback, and RFC1918/private
-  links, and retry 3× with a 20s timeout. Add host-specific exceptions via
-  a `.lycheeignore` in your repo (lychee reads it automatically), not by
-  weakening the shared defaults.
+- Estate defaults exclude mailto: (lychee v0.24 default), localhost/
+  loopback, and RFC1918/private links, and retry 3× with a 20s timeout.
+  Add host-specific exceptions via a `.lycheeignore` in your repo (lychee
+  reads it automatically), not by weakening the shared defaults.
+- When `scan-path` is a directory, the lane auto-passes `--root-dir` +
+  `--fallback-extensions html,htm` so root-relative links (`/privacy`)
+  resolve instead of erroring — override with your own `--root-dir` /
+  `--base-url` in `args` (e.g. `--base-url https://example.com` checks
+  internal links against the live site).
 - Results are always in the job summary and the `lychee-results` artifact.
 - **Flip to enforced:** set `fail-on-error: true`. Per the standard,
   marketing sites must enforce; app repos with frequently changing external

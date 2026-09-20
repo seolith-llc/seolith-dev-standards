@@ -90,8 +90,32 @@ jobs:
       #  - 3 retries / 20s timeout absorb flaky hosts before reporting.
       # Repos with known-flaky hosts should add a .lycheeignore (lychee
       # reads it automatically) rather than loosening these defaults.
-      # entrypoint.sh runs args through eval, so the single-quoted regex
-      # style below survives as one argv entry.
+      # entrypoint.sh runs args through eval, so the single-quoted value
+      # below survives as one argv entry.
+      - name: Resolve scan args
+        id: scan
+        shell: bash
+        env:
+          SCAN_PATH: ${{ inputs.scan-path }}
+          EXTRA_ARGS: ${{ inputs.args }}
+        run: |
+          set -euo pipefail
+          args="$EXTRA_ARGS"
+          # Root-relative links (/privacy, /#blog) are normal in served
+          # sites but unresolvable when scanning local files: lychee errors
+          # on every one ("provide a root dir") unless told where the site
+          # root is -- in both batch-3 pilots they were the ENTIRE error
+          # report. For directory scans, auto-supply --root-dir plus
+          # --fallback-extensions so '/privacy' resolves to privacy.html
+          # (Cloudflare Pages pretty-URL style). Callers override with
+          # their own --root-dir / --base-url / --fallback-extensions.
+          if [ -d "$SCAN_PATH" ] && [[ "$args" != *--root-dir* && "$args" != *--base-url* && "$args" != *--base\ * ]]; then
+            args="--root-dir '$(realpath "$SCAN_PATH")' $args"
+            [[ "$args" == *--fallback-extensions* ]] || args="--fallback-extensions html,htm $args"
+          fi
+          printf 'args=%s\n' "$args" >> "$GITHUB_OUTPUT"
+          echo "lychee args: $args"
+
       - name: Run lychee
         id: lychee
         uses: lycheeverse/lychee-action@v2
@@ -100,7 +124,7 @@ jobs:
             --verbose --no-progress
             --exclude-all-private
             --max-retries 3 --timeout 20
-            ${{ inputs.args }}
+            ${{ steps.scan.outputs.args }}
             '${{ inputs.scan-path }}'
           # Report-only rollout: with fail-on-error=false the step must not
           # go red for ANY finding, including "no links found" (which
