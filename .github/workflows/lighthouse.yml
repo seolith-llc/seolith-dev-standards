@@ -98,7 +98,16 @@ jobs:
   # already proven safe -- closing "caller picks the machine" without
   # changing behavior for any existing caller.
   resolve-runner:
-    runs-on: ubuntu-latest
+    # Fixed, non-caller-controlled runner -- now on our own pool instead of a
+    # billed hosted runner. Hosted minutes are capped at 3,000/month on Team
+    # and every caller of this workflow paid for this job, which is what
+    # exhausted the allowance and blocked hosted runners outright.
+    #
+    # Private repos -> self-hosted. Public repos, and any event where repo
+    # visibility is unknown, stay on ubuntu-latest: a fork PR must never land
+    # on an estate machine. This job only runs the validation script below,
+    # which comes from this repository, not from the caller.
+    runs-on: ${{ fromJSON(github.event.repository.private && '["self-hosted","Linux","X64","seolith-local","linux-build"]' || '"ubuntu-latest"') }}
     permissions: {}
     outputs:
       runs-on: ${{ steps.validate.outputs.runs-on }}
